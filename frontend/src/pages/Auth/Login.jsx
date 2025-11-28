@@ -4,9 +4,11 @@ import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Mail, Lock, LogIn } from "lucide-react";
 import { getApiBaseUrl } from "../../services/api";
+import { useAuth } from "../../contexts/AuthContext";
 
 const Login = () => {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const [formData, setFormData] = useState({
     email: "",
     password: "",
@@ -30,9 +32,9 @@ const Login = () => {
 
       if (response.ok) {
         const data = await response.json();
-        // Store token if provided
-        if (data.token) {
-          localStorage.setItem("auth_token", data.token);
+        // Store token and user data
+        if (data.token && data.user) {
+          login(data.user, data.token);
         }
         navigate("/");
       } else {

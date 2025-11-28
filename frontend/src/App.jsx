@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { Routes, Route, useLocation } from "react-router-dom";
+import { AuthProvider } from "./contexts/AuthContext";
 import Navbar from "./layouts/Navbar";
 import Footer from "./layouts/Footer";
 import Home from "./pages/Home/Home";
@@ -8,6 +9,7 @@ import Modules from "./pages/Modules/Modules";
 import Login from "./pages/Auth/Login";
 import Signup from "./pages/Auth/Signup";
 import Subscription from "./pages/Subscription/Subscription";
+import ProtectedRoute from "./components/ProtectedRoute";
 import "./App.css";
 
 function App() {
@@ -20,21 +22,30 @@ function App() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-black text-gray-100 flex flex-col">
-      <Navbar />
-      <main className="flex-1">
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/verify" element={<Verify />} />
-          <Route path="/modules" element={<Modules />} />
-          <Route path="/modules/:id" element={<Modules />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/signup" element={<Signup />} />
-          <Route path="/subscription" element={<Subscription />} />
-        </Routes>
-      </main>
-      {!footerHiddenRoutes.has(location.pathname) && <Footer />}
-    </div>
+    <AuthProvider>
+      <div className="min-h-screen bg-black text-gray-100 flex flex-col">
+        <Navbar />
+        <main className="flex-1">
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/verify" element={<Verify />} />
+            <Route path="/modules" element={<Modules />} />
+            <Route path="/modules/:id" element={<Modules />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/signup" element={<Signup />} />
+            <Route
+              path="/subscription"
+              element={
+                <ProtectedRoute>
+                  <Subscription />
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
+        </main>
+        {!footerHiddenRoutes.has(location.pathname) && <Footer />}
+      </div>
+    </AuthProvider>
   );
 }
 

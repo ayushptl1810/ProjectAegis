@@ -1072,57 +1072,121 @@ class LoginRequest(BaseModel):
 class SignupRequest(BaseModel):
     email: str
     password: str
+    domain_preferences: Optional[List[str]] = []
 
 class UserResponse(BaseModel):
     email: str
     id: Optional[str] = None
 
-# Simple in-memory user store (replace with database in production)
-users_db = {}
-
 @app.post("/auth/signup")
 async def signup(request: SignupRequest):
     """Sign up a new user"""
-    if request.email in users_db:
-        raise HTTPException(status_code=400, detail="Email already registered")
+    if not mongodb_service:
+        raise HTTPException(status_code=503, detail="MongoDB service not available")
     
-    # In production, hash the password
-    users_db[request.email] = {
-        "email": request.email,
-        "password": request.password,  # Should be hashed
-        "id": str(len(users_db) + 1)
-    }
-    
-    return {
-        "message": "User created successfully",
-        "token": "mock_token_" + request.email,  # In production, use JWT
-        "user": {"email": request.email, "id": users_db[request.email]["id"]}
-    }
+    try:
+        # Hash password (in production, use bcrypt or similar)
+        import hashlib
+        password_hash = hashlib.sha256(request.password.encode()).hexdigest()
+        
+        user_data = {
+            "email": request.email,
+            "password": password_hash,
+            "domain_preferences": request.domain_preferences or [],
+            "created_at": None,  # Will be set by MongoDB service
+            "updated_at": None,
+        }
+        
+        user = mongodb_service.create_user(user_data)
+        
+        # Generate token (in production, use JWT)
+        token = f"mock_token_{request.email}"
+        
+        return {
+            "message": "User created successfully",
+            "token": token,
+            "user": {
+                "email": user["email"],
+                "id": user["id"],
+                "domain_preferences": user.get("domain_preferences", [])
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Signup error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create user")
 
 @app.post("/auth/login")
 async def login(request: LoginRequest):
     """Login user"""
-    if request.email not in users_db:
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+    if not mongodb_service:
+        raise HTTPException(status_code=503, detail="MongoDB service not available")
     
-    user = users_db[request.email]
-    if user["password"] != request.password:
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-    
-    return {
-        "message": "Login successful",
-        "token": "mock_token_" + request.email,  # In production, use JWT
-        "user": {"email": request.email, "id": user["id"]}
-    }
+    try:
+        user = mongodb_service.get_user_by_email(request.email)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        
+        # Verify password (in production, use bcrypt or similar)
+        import hashlib
+        password_hash = hashlib.sha256(request.password.encode()).hexdigest()
+        
+        if user["password"] != password_hash:
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        
+        # Generate token (in production, use JWT)
+        token = f"mock_token_{request.email}"
+        
+        return {
+            "message": "Login successful",
+            "token": token,
+            "user": {
+                "email": user["email"],
+                "id": user["id"],
+                "domain_preferences": user.get("domain_preferences", [])
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Login error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to login")
 
 @app.get("/auth/me")
-async def get_current_user():
+async def get_current_user(request: Request):
     """Get current user (requires authentication in production)"""
+    if not mongodb_service:
+        raise HTTPException(status_code=503, detail="MongoDB service not available")
+    
     # In production, verify JWT token from Authorization header
-    return {
-        "email": "demo@example.com",
-        "id": "1"
-    }
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    token = auth_header.replace("Bearer ", "")
+    
+    # Extract email from token (in production, decode JWT)
+    if not token.startswith("mock_token_"):
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    email = token.replace("mock_token_", "")
+    
+    try:
+        user = mongodb_service.get_user_by_email(email)
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        
+        return {
+            "email": user["email"],
+            "id": user["id"],
+            "domain_preferences": user.get("domain_preferences", [])
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get user error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get user")
 
 
 # ---------- Chat history endpoints ----------

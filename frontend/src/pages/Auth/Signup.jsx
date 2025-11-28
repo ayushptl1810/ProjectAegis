@@ -4,13 +4,27 @@ import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Mail, Lock, UserPlus } from "lucide-react";
 import { getApiBaseUrl } from "../../services/api";
+import { useAuth } from "../../contexts/AuthContext";
+
+const DOMAIN_OPTIONS = [
+  "Politics",
+  "Technology",
+  "Health",
+  "Crime",
+  "Military",
+  "Sports",
+  "Entertainment",
+  "Social Media only",
+];
 
 const Signup = () => {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const [formData, setFormData] = useState({
     email: "",
     password: "",
     confirmPassword: "",
+    domainPreferences: [],
   });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -40,13 +54,14 @@ const Signup = () => {
         body: JSON.stringify({
           email: formData.email,
           password: formData.password,
+          domain_preferences: formData.domainPreferences,
         }),
       });
 
       if (response.ok) {
         const data = await response.json();
-        if (data.token) {
-          localStorage.setItem("auth_token", data.token);
+        if (data.token && data.user) {
+          login(data.user, data.token);
         }
         navigate("/");
       } else {
@@ -133,6 +148,48 @@ const Signup = () => {
                   placeholder="••••••••"
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-3">
+                Select Domains for Updates (Optional)
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                {DOMAIN_OPTIONS.map((domain) => (
+                  <label
+                    key={domain}
+                    className="flex items-center space-x-2 cursor-pointer p-2 rounded-lg border border-gray-600 hover:border-blue-500 transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={formData.domainPreferences.includes(domain)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setFormData({
+                            ...formData,
+                            domainPreferences: [
+                              ...formData.domainPreferences,
+                              domain,
+                            ],
+                          });
+                        } else {
+                          setFormData({
+                            ...formData,
+                            domainPreferences: formData.domainPreferences.filter(
+                              (d) => d !== domain
+                            ),
+                          });
+                        }
+                      }}
+                      className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-gray-300">{domain}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="mt-2 text-xs text-gray-400">
+                Choose domains you'd like to receive fact-check alerts for
+              </p>
             </div>
 
             <button

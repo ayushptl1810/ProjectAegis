@@ -1,13 +1,23 @@
 import { motion } from "framer-motion";
 import { Check } from "lucide-react";
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { subscriptionService } from "../../services/api";
+import { useAuth } from "../../contexts/AuthContext";
 
 const Subscription = () => {
+  const { isAuthenticated, user } = useAuth();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [razorpayLoaded, setRazorpayLoaded] = useState(false);
   const [razorpayKeyId, setRazorpayKeyId] = useState(null);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      navigate("/login");
+    }
+  }, [isAuthenticated, navigate]);
 
   // Load Razorpay Checkout script
   useEffect(() => {
@@ -80,10 +90,14 @@ const Subscription = () => {
     setLoading(true);
     setError(null);
 
+    if (!isAuthenticated || !user) {
+      setError("You must be logged in to subscribe");
+      navigate("/login");
+      return;
+    }
+
     try {
-      // Get user ID from localStorage or auth context
-      // For now, using a placeholder - you should get this from your auth system
-      const userId = localStorage.getItem("user_id") || localStorage.getItem("user_email") || "demo_user";
+      const userId = user.id;
       
       // Get available plans and find Pro plan
       const plansResponse = await subscriptionService.getPlans();

@@ -52,6 +52,7 @@ class MongoDBService:
             self.chat_sessions = self.db["chat_sessions"]
             self.chat_messages = self.db["chat_messages"]
             self.subscriptions = self.db["subscriptions"]
+            self.users = self.db["users"]
             
             logger.info("✅ Successfully connected to MongoDB")
             
@@ -535,6 +536,85 @@ class MongoDBService:
             subscription["_id"] = str(subscription["_id"])
         
         return subscription
+    
+    def create_user(self, user_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create a new user in MongoDB
+        
+        Args:
+            user_data: User data including email, password (hashed), domain_preferences, etc.
+            
+        Returns:
+            Created user document
+        """
+        if self.users is None:
+            raise RuntimeError("users collection not initialised")
+        
+        from datetime import datetime
+        from bson import ObjectId
+        
+        # Check if user already exists
+        existing = self.users.find_one({"email": user_data["email"]})
+        if existing:
+            raise ValueError("Email already registered")
+        
+        user_doc = {
+            **user_data,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+        }
+        
+        result = self.users.insert_one(user_doc)
+        user_doc["_id"] = str(result.inserted_id)
+        user_doc["id"] = str(result.inserted_id)
+        
+        logger.info(f"✅ Created user: {user_data['email']}")
+        return user_doc
+    
+    def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """
+        Get user by email
+        
+        Args:
+            email: User email
+            
+        Returns:
+            User document or None
+        """
+        if self.users is None:
+            return None
+        
+        user = self.users.find_one({"email": email})
+        if user:
+            user["_id"] = str(user["_id"])
+            user["id"] = str(user["_id"])
+        
+        return user
+    
+    def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get user by ID
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            User document or None
+        """
+        if self.users is None:
+            return None
+        
+        from bson import ObjectId
+        
+        try:
+            user = self.users.find_one({"_id": ObjectId(user_id)})
+            if user:
+                user["_id"] = str(user["_id"])
+                user["id"] = str(user["_id"])
+            return user
+        except Exception as e:
+            logger.error(f"Error getting user by ID: {e}")
+            return None
     
     def close(self):
         """Close MongoDB connection"""
