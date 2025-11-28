@@ -1189,13 +1189,16 @@ async def get_current_user(request: Request):
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         
-        # Get subscription info to determine tier
-        subscription = None
-        subscription_tier = "Free"
-        if user.get("id"):
-            subscription = mongodb_service.get_user_subscription(user_id=user["id"])
-            if subscription and subscription.get("status") == "active":
+        # Get subscription tier from user document (preferred) or check subscription
+        subscription_tier = user.get("subscription_tier", "Free")
+        
+        # If not in user doc, check active subscription
+        if subscription_tier == "Free" and user.get("id"):
+            subscription = mongodb_service.get_user_subscription(user_id=user["id"], status="active")
+            if subscription:
                 subscription_tier = subscription.get("plan_name", "Free")
+                # Update user document with subscription tier
+                mongodb_service.update_user_subscription_tier(user["id"], subscription_tier)
         
         return {
             "name": user.get("name"),
@@ -1481,16 +1484,35 @@ async def create_subscription(request: CreateSubscriptionRequest):
         # Get plan details
         plan = razorpay_service.get_plan(request.plan_id)
         
+        # Extract plan name - try multiple possible locations
+        plan_name = "Pro"  # Default
+        if plan:
+            # Try different possible locations for plan name
+            plan_name_raw = (
+                plan.get("item", {}).get("name") or
+                plan.get("name") or
+                request.notes.get("plan_name") if request.notes else None or
+                "Pro"
+            )
+            # Normalize plan name
+            plan_name_raw_lower = plan_name_raw.lower()
+            if "pro" in plan_name_raw_lower:
+                plan_name = "Pro"
+            elif "enterprise" in plan_name_raw_lower:
+                plan_name = "Enterprise"
+            else:
+                plan_name = plan_name_raw
+        
         # Store subscription in MongoDB
         from datetime import datetime
         subscription_data = {
             "user_id": request.user_id,
             "razorpay_subscription_id": subscription.get("id"),
             "razorpay_plan_id": request.plan_id,
-            "plan_name": plan.get("item", {}).get("name", "Unknown"),
+            "plan_name": plan_name,
             "status": subscription.get("status", "created"),
-            "amount": plan.get("item", {}).get("amount", 0),
-            "currency": plan.get("item", {}).get("currency", "INR"),
+            "amount": plan.get("item", {}).get("amount", 0) if plan else 0,
+            "currency": plan.get("item", {}).get("currency", "INR") if plan else "INR",
             "current_start": subscription.get("current_start"),
             "current_end": subscription.get("current_end"),
             "next_billing_at": subscription.get("end_at"),
@@ -1499,6 +1521,14 @@ async def create_subscription(request: CreateSubscriptionRequest):
         }
         
         mongodb_service.upsert_subscription(subscription_data)
+        
+        # Update user's subscription tier immediately if status is active
+        # Otherwise, it will be updated via webhook when payment is completed
+        if subscription.get("status") == "active":
+            mongodb_service.update_user_subscription_tier(request.user_id, plan_name)
+            logger.info(f"✅ Updated user {request.user_id} subscription tier to {plan_name}")
+        else:
+            logger.info(f"⏳ Subscription created with status '{subscription.get('status')}'. User tier will be updated when subscription is activated via webhook.")
         
         return {
             "success": True,
@@ -1644,15 +1674,33 @@ async def razorpay_webhook(request: Request):
             subscription_id = subscription.get("id")
             
             if subscription_id:
-                mongodb_service.update_subscription_status(
-                    subscription_id,
-                    "active",
-                    {
-                        "current_start": subscription.get("current_start"),
-                        "current_end": subscription.get("current_end"),
-                        "next_billing_at": subscription.get("end_at")
-                    }
-                )
+                # Get subscription from DB to get user_id and plan_name
+                sub_doc = mongodb_service.get_subscription_by_razorpay_id(subscription_id)
+                if sub_doc:
+                    user_id = sub_doc.get("user_id")
+                    plan_name = sub_doc.get("plan_name", "Pro")
+                    
+                    logger.info(f"📥 Processing subscription.activated for user {user_id}, plan {plan_name}")
+                    
+                    mongodb_service.update_subscription_status(
+                        subscription_id,
+                        "active",
+                        {
+                            "current_start": subscription.get("current_start"),
+                            "current_end": subscription.get("current_end"),
+                            "next_billing_at": subscription.get("end_at")
+                        }
+                    )
+                    
+                    # Update user's subscription tier
+                    if user_id:
+                        success = mongodb_service.update_user_subscription_tier(user_id, plan_name)
+                        if success:
+                            logger.info(f"✅ Successfully updated user {user_id} tier to {plan_name} via webhook")
+                        else:
+                            logger.error(f"❌ Failed to update user {user_id} tier to {plan_name}")
+                else:
+                    logger.warning(f"⚠️ Subscription {subscription_id} not found in database")
         
         elif event == "subscription.charged":
             subscription = payload.get("subscription", {}).get("entity", {})
@@ -1660,35 +1708,62 @@ async def razorpay_webhook(request: Request):
             subscription_id = subscription.get("id")
             
             if subscription_id:
-                # Update subscription with payment info
-                update_data = {
-                    "current_start": subscription.get("current_start"),
-                    "current_end": subscription.get("current_end"),
-                    "next_billing_at": subscription.get("end_at"),
-                    "last_payment_id": payment.get("id"),
-                    "last_payment_amount": payment.get("amount"),
-                    "last_payment_date": payment.get("created_at")
-                }
-                mongodb_service.update_subscription_status(
-                    subscription_id,
-                    subscription.get("status", "active"),
-                    update_data
-                )
+                # Get subscription from DB to get user_id and plan_name
+                sub_doc = mongodb_service.get_subscription_by_razorpay_id(subscription_id)
+                if sub_doc:
+                    user_id = sub_doc.get("user_id")
+                    plan_name = sub_doc.get("plan_name", "Pro")
+                    
+                    logger.info(f"📥 Processing subscription.charged for user {user_id}, plan {plan_name}")
+                    
+                    # Update subscription with payment info
+                    update_data = {
+                        "current_start": subscription.get("current_start"),
+                        "current_end": subscription.get("current_end"),
+                        "next_billing_at": subscription.get("end_at"),
+                        "last_payment_id": payment.get("id"),
+                        "last_payment_amount": payment.get("amount"),
+                        "last_payment_date": payment.get("created_at")
+                    }
+                    mongodb_service.update_subscription_status(
+                        subscription_id,
+                        subscription.get("status", "active"),
+                        update_data
+                    )
+                    
+                    # Update user's subscription tier when payment is charged
+                    if user_id and subscription.get("status") == "active":
+                        success = mongodb_service.update_user_subscription_tier(user_id, plan_name)
+                        if success:
+                            logger.info(f"✅ Successfully updated user {user_id} tier to {plan_name} via subscription.charged webhook")
+                        else:
+                            logger.error(f"❌ Failed to update user {user_id} tier to {plan_name}")
+                else:
+                    logger.warning(f"⚠️ Subscription {subscription_id} not found in database for subscription.charged event")
         
         elif event == "subscription.cancelled":
             subscription = payload.get("subscription", {}).get("entity", {})
             subscription_id = subscription.get("id")
             
             if subscription_id:
-                mongodb_service.update_subscription_status(
-                    subscription_id,
-                    "cancelled",
-                    {
-                        "current_start": subscription.get("current_start"),
-                        "current_end": subscription.get("current_end"),
-                        "next_billing_at": subscription.get("end_at")
-                    }
-                )
+                # Get subscription from DB to get user_id
+                sub_doc = mongodb_service.get_subscription_by_razorpay_id(subscription_id)
+                if sub_doc:
+                    user_id = sub_doc.get("user_id")
+                    
+                    mongodb_service.update_subscription_status(
+                        subscription_id,
+                        "cancelled",
+                        {
+                            "current_start": subscription.get("current_start"),
+                            "current_end": subscription.get("current_end"),
+                            "next_billing_at": subscription.get("end_at")
+                        }
+                    )
+                    
+                    # Update user's subscription tier to Free
+                    if user_id:
+                        mongodb_service.update_user_subscription_tier(user_id, "Free")
         
         elif event == "payment.failed":
             payment = payload.get("payment", {}).get("entity", {})

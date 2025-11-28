@@ -107,12 +107,12 @@ const Navbar = () => {
                 <div className="ml-4 flex items-center gap-3">
                   <button
                     onClick={() => navigate("/profile")}
-                    className={`p-2 rounded-lg transition-colors ${
+                    className={`p-2 rounded-lg transition-all duration-200 ${
                       user?.subscription_tier === "Pro"
-                        ? "text-cyan-400 hover:bg-cyan-500/20"
+                        ? "text-cyan-400 hover:bg-cyan-500/20 hover:scale-110"
                         : user?.subscription_tier === "Enterprise"
-                        ? "text-purple-400 hover:bg-purple-500/20"
-                        : "text-gray-400 hover:bg-gray-700"
+                        ? "text-purple-400 hover:bg-purple-500/20 hover:scale-110"
+                        : "text-gray-400 hover:bg-gray-700 hover:scale-110"
                     }`}
                     title={`Profile - ${user?.subscription_tier || "Free"} Tier`}
                   >

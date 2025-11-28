@@ -46,7 +46,7 @@ const Profile = () => {
       case "pro":
         return "from-cyan-500 to-blue-500";
       case "enterprise":
-        return "from-purple-500 to-indigo-500";
+        return "from-purple-600 to-indigo-600";
       default:
         return "from-gray-500 to-gray-600";
     }
@@ -57,9 +57,20 @@ const Profile = () => {
       case "pro":
         return "bg-cyan-500/20 text-cyan-300 border-cyan-500/50";
       case "enterprise":
-        return "bg-purple-500/20 text-purple-300 border-purple-500/50";
+        return "bg-purple-600/20 text-purple-300 border-purple-600/50";
       default:
         return "bg-gray-500/20 text-gray-300 border-gray-500/50";
+    }
+  };
+
+  const getTierIconColor = (tier) => {
+    switch (tier?.toLowerCase()) {
+      case "pro":
+        return "text-cyan-400";
+      case "enterprise":
+        return "text-purple-400";
+      default:
+        return "text-gray-400";
     }
   };
 
@@ -90,7 +101,7 @@ const Profile = () => {
     }
   };
 
-  const currentTier = subscription?.plan_name || "Free";
+  const currentTier = user?.subscription_tier || subscription?.plan_name || "Free";
   const renewalDate = subscription?.next_billing_at 
     ? new Date(subscription.next_billing_at * 1000).toISOString()
     : null;
@@ -123,19 +134,24 @@ const Profile = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className={`mb-6 rounded-2xl border p-6 bg-gradient-to-br ${getTierColor(currentTier)}/10 border-white/10 backdrop-blur-sm`}
+          className={`mb-6 rounded-2xl border p-6 bg-gradient-to-br ${getTierColor(currentTier)}/10 border-white/10 backdrop-blur-sm shadow-lg hover:shadow-xl transition-shadow`}
         >
           <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="text-2xl font-bold text-white mb-1">Subscription</h2>
-              <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-semibold border ${getTierBadgeColor(currentTier)}`}>
-                {isActive ? (
-                  <CheckCircle className="w-4 h-4" />
-                ) : (
-                  <XCircle className="w-4 h-4" />
-                )}
-                {currentTier} {isActive ? "Active" : "Inactive"}
-              </span>
+            <div className="flex items-center gap-4">
+              <div className={`p-3 rounded-xl bg-gradient-to-br ${getTierColor(currentTier)}/20 border ${getTierBadgeColor(currentTier).split(' ')[2]}`}>
+                <CreditCard className={`w-6 h-6 ${getTierIconColor(currentTier)}`} />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-white mb-1">Subscription</h2>
+                <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-semibold border ${getTierBadgeColor(currentTier)}`}>
+                  {isActive ? (
+                    <CheckCircle className="w-4 h-4" />
+                  ) : (
+                    <XCircle className="w-4 h-4" />
+                  )}
+                  {currentTier} {isActive ? "Active" : "Inactive"}
+                </span>
+              </div>
             </div>
             {currentTier !== "Free" && (
               <button
@@ -207,44 +223,52 @@ const Profile = () => {
             Personal Information
           </h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="group">
               <label className="block text-xs uppercase tracking-wider text-gray-400 mb-2">
                 Full Name
               </label>
-              <div className="flex items-center gap-3 p-3 bg-black/30 rounded-lg">
-                <User className="w-4 h-4 text-gray-400" />
-                <span className="text-white">{user?.name || "Not provided"}</span>
+              <div className="flex items-center gap-3 p-4 bg-black/30 rounded-lg border border-transparent group-hover:border-white/10 transition-all">
+                <div className="p-2 bg-white/5 rounded-lg">
+                  <User className="w-4 h-4 text-gray-400" />
+                </div>
+                <span className="text-white font-medium">{user?.name || "Not provided"}</span>
               </div>
             </div>
 
-            <div>
+            <div className="group">
               <label className="block text-xs uppercase tracking-wider text-gray-400 mb-2">
                 Email
               </label>
-              <div className="flex items-center gap-3 p-3 bg-black/30 rounded-lg">
-                <Mail className="w-4 h-4 text-gray-400" />
-                <span className="text-white">{user?.email || "Not provided"}</span>
+              <div className="flex items-center gap-3 p-4 bg-black/30 rounded-lg border border-transparent group-hover:border-white/10 transition-all">
+                <div className="p-2 bg-white/5 rounded-lg">
+                  <Mail className="w-4 h-4 text-gray-400" />
+                </div>
+                <span className="text-white font-medium">{user?.email || "Not provided"}</span>
               </div>
             </div>
 
-            <div>
+            <div className="group">
               <label className="block text-xs uppercase tracking-wider text-gray-400 mb-2">
                 Phone Number
               </label>
-              <div className="flex items-center gap-3 p-3 bg-black/30 rounded-lg">
-                <Phone className="w-4 h-4 text-gray-400" />
-                <span className="text-white">{user?.phone_number || "Not provided"}</span>
+              <div className="flex items-center gap-3 p-4 bg-black/30 rounded-lg border border-transparent group-hover:border-white/10 transition-all">
+                <div className="p-2 bg-white/5 rounded-lg">
+                  <Phone className="w-4 h-4 text-gray-400" />
+                </div>
+                <span className="text-white font-medium">{user?.phone_number || "Not provided"}</span>
               </div>
             </div>
 
-            <div>
+            <div className="group">
               <label className="block text-xs uppercase tracking-wider text-gray-400 mb-2">
                 Age
               </label>
-              <div className="flex items-center gap-3 p-3 bg-black/30 rounded-lg">
-                <Calendar className="w-4 h-4 text-gray-400" />
-                <span className="text-white">{user?.age ? `${user.age} years` : "Not provided"}</span>
+              <div className="flex items-center gap-3 p-4 bg-black/30 rounded-lg border border-transparent group-hover:border-white/10 transition-all">
+                <div className="p-2 bg-white/5 rounded-lg">
+                  <Calendar className="w-4 h-4 text-gray-400" />
+                </div>
+                <span className="text-white font-medium">{user?.age ? `${user.age} years` : "Not provided"}</span>
               </div>
             </div>
           </div>
@@ -256,7 +280,7 @@ const Profile = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
-            className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm mb-6"
+            className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm mb-6 hover:border-white/20 transition-all shadow-lg hover:shadow-xl"
           >
             <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
               <Tag className="w-5 h-5" />
@@ -264,12 +288,15 @@ const Profile = () => {
             </h2>
             <div className="flex flex-wrap gap-2">
               {user.domain_preferences.map((domain, index) => (
-                <span
+                <motion.span
                   key={index}
-                  className="px-3 py-1 bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 rounded-full text-sm font-medium"
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.3 + index * 0.05 }}
+                  className="px-4 py-2 bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-300 border border-cyan-500/50 rounded-full text-sm font-medium hover:from-cyan-500/30 hover:to-blue-500/30 transition-all cursor-default"
                 >
                   {domain}
-                </span>
+                </motion.span>
               ))}
             </div>
           </motion.div>
@@ -280,19 +307,19 @@ const Profile = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
-          className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm"
+          className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm hover:border-white/20 transition-all shadow-lg hover:shadow-xl"
         >
           <h2 className="text-xl font-bold text-white mb-4">Account Actions</h2>
           <div className="flex flex-wrap gap-3">
             <button
               onClick={() => navigate("/subscription")}
-              className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg text-sm font-semibold hover:from-cyan-600 hover:to-blue-600 transition-all"
+              className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg text-sm font-semibold hover:from-cyan-600 hover:to-blue-600 transition-all shadow-lg hover:shadow-cyan-500/50 hover:scale-105"
             >
               Manage Subscription
             </button>
             <button
               onClick={() => navigate("/")}
-              className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-sm font-medium transition-colors"
+              className="px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-lg text-sm font-medium transition-all hover:scale-105"
             >
               Back to Home
             </button>

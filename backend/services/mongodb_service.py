@@ -434,8 +434,25 @@ class MongoDBService:
             return_document=True
         )
         
-        result["_id"] = str(result["_id"])
-        logger.info(f"✅ Upserted subscription: {razorpay_subscription_id}")
+        if result:
+            result["_id"] = str(result["_id"])
+            logger.info(f"✅ Upserted subscription: {razorpay_subscription_id}")
+            
+            # Update user's subscription tier if user_id is present
+            user_id = subscription_data.get("user_id")
+            status = subscription_data.get("status")
+            plan_name = subscription_data.get("plan_name", "Free")
+            
+            if user_id:
+                if status == "active":
+                    success = self.update_user_subscription_tier(user_id, plan_name)
+                    if success:
+                        logger.info(f"✅ Updated user {user_id} subscription tier to {plan_name} via upsert_subscription")
+                elif status in ["cancelled", "expired", "paused", "ended"]:
+                    success = self.update_user_subscription_tier(user_id, "Free")
+                    if success:
+                        logger.info(f"✅ Updated user {user_id} subscription tier to Free (status: {status})")
+        
         return result
     
     def get_user_subscription(
@@ -509,6 +526,15 @@ class MongoDBService:
         if result:
             result["_id"] = str(result["_id"])
             logger.info(f"✅ Updated subscription status: {razorpay_subscription_id} -> {status}")
+            
+            # Update user's subscription tier
+            user_id = result.get("user_id")
+            if user_id:
+                plan_name = result.get("plan_name", "Free")
+                if status == "active":
+                    self.update_user_subscription_tier(user_id, plan_name)
+                elif status in ["cancelled", "expired", "paused"]:
+                    self.update_user_subscription_tier(user_id, "Free")
         
         return result
     
@@ -615,6 +641,41 @@ class MongoDBService:
         except Exception as e:
             logger.error(f"Error getting user by ID: {e}")
             return None
+    
+    def update_user_subscription_tier(self, user_id: str, subscription_tier: str) -> bool:
+        """
+        Update user's subscription tier in user collection
+        
+        Args:
+            user_id: User ID
+            subscription_tier: Subscription tier (Free, Pro, Enterprise)
+            
+        Returns:
+            True if updated successfully, False otherwise
+        """
+        if self.users is None:
+            return False
+        
+        from datetime import datetime
+        from bson import ObjectId
+        
+        try:
+            result = self.users.update_one(
+                {"_id": ObjectId(user_id)},
+                {
+                    "$set": {
+                        "subscription_tier": subscription_tier,
+                        "updated_at": datetime.utcnow()
+                    }
+                }
+            )
+            if result.modified_count > 0:
+                logger.info(f"✅ Updated user {user_id} subscription tier to {subscription_tier}")
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Error updating user subscription tier: {e}")
+            return False
     
     def close(self):
         """Close MongoDB connection"""
