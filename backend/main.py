@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, WebSocket, WebSocketDisconnect, Request
 from typing import Optional, List, Dict, Any
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +21,8 @@ from services.text_fact_checker import TextFactChecker
 from services.educational_content_generator import EducationalContentGenerator
 from services.mongodb_service import MongoDBService
 from services.websocket_service import connection_manager, initialize_mongodb_change_stream, cleanup_mongodb_change_stream
+from services.razorpay_service import RazorpayService
+import razorpay.errors
 from utils.file_utils import save_upload_file, cleanup_temp_files
 from config import config
 from services.deepfake_checker import detect_audio_deepfake
@@ -74,8 +76,136 @@ try:
 except Exception as e:
     print(f"Warning: MongoDB service initialization failed: {e}")
 
+# Initialize Razorpay service
+razorpay_service = None
+try:
+    razorpay_service = RazorpayService()
+except Exception as e:
+    print(f"Warning: Razorpay service initialization failed: {e}")
+
 # Initialize MongoDB change service (will be set in startup event)
 mongodb_change_service = None
+
+async def initialize_subscription_plans():
+    """Initialize subscription plans in Razorpay if they don't exist"""
+    if not razorpay_service or not razorpay_service.client:
+        logger.warning("⚠️ Razorpay service not available. Skipping plan initialization.")
+        return
+    
+    # First, test Razorpay connection by trying to fetch account details or make a simple API call
+    try:
+        # Try to verify credentials work by attempting a simple operation
+        # We'll skip listing plans if it fails and just try to create
+        logger.info("🔍 Testing Razorpay API connection...")
+    except Exception as e:
+        logger.error(f"❌ Razorpay API connection test failed: {e}")
+        logger.warning("⚠️ Skipping plan initialization due to API connection issues")
+        return
+    
+    try:
+        # Try to list existing plans, but don't fail if it errors
+        existing_plan_names = set()
+        try:
+            existing_plans = razorpay_service.list_plans(count=100)
+            if existing_plans and existing_plans.get("items"):
+                existing_plan_names = {
+                    p.get("item", {}).get("name") 
+                    for p in existing_plans.get("items", [])
+                    if p.get("item", {}).get("name")
+                }
+                logger.info(f"📋 Found {len(existing_plan_names)} existing plans")
+        except Exception as list_error:
+            error_msg = str(list_error).lower()
+            if "not found" in error_msg or "404" in error_msg:
+                logger.info("ℹ️ No existing plans found (this is normal for new accounts)")
+            else:
+                logger.warning(f"⚠️ Could not list existing plans: {list_error}")
+            # Continue anyway - we'll try to create plans and handle duplicates
+        
+        plans_to_create = [
+            {
+                "name": "Plan 1",
+                "amount": 100,  # 1 INR in paise
+                "currency": "INR",
+                "interval": 1,
+                "period": "monthly",
+                "description": "Plan 1 - Monthly Subscription (1 INR)"
+            },
+            {
+                "name": "Plan 2",
+                "amount": 200,  # 2 INR in paise
+                "currency": "INR",
+                "interval": 1,
+                "period": "monthly",
+                "description": "Plan 2 - Monthly Subscription (2 INR)"
+            },
+            {
+                "name": "Plan 3",
+                "amount": 300,  # 3 INR in paise
+                "currency": "INR",
+                "interval": 1,
+                "period": "monthly",
+                "description": "Plan 3 - Monthly Subscription (3 INR)"
+            }
+        ]
+        
+        created_count = 0
+        skipped_count = 0
+        error_count = 0
+        
+        for plan_data in plans_to_create:
+            plan_name = plan_data["name"]
+            
+            # Check if plan already exists
+            if plan_name in existing_plan_names:
+                logger.info(f"⏭️ Plan {plan_name} already exists, skipping")
+                skipped_count += 1
+                continue
+            
+            try:
+                logger.info(f"🔄 Creating plan: {plan_name}...")
+                plan = razorpay_service.create_plan(**plan_data)
+                logger.info(f"✅ Created subscription plan: {plan_name} (ID: {plan.get('id')})")
+                created_count += 1
+            except razorpay.errors.BadRequestError as e:
+                error_msg = str(e).lower()
+                # Check if error is due to plan already existing (duplicate)
+                if "already exists" in error_msg or "duplicate" in error_msg:
+                    logger.info(f"⏭️ Plan {plan_name} already exists (detected during creation), skipping")
+                    skipped_count += 1
+                else:
+                    logger.error(f"❌ BadRequestError creating plan {plan_name}: {e}")
+                    error_count += 1
+            except Exception as e:
+                error_msg = str(e).lower()
+                # Check if error is due to plan already existing (duplicate)
+                if "already exists" in error_msg or "duplicate" in error_msg:
+                    logger.info(f"⏭️ Plan {plan_name} already exists (detected during creation), skipping")
+                    skipped_count += 1
+                elif "not found" in error_msg or "404" in error_msg:
+                    logger.error(f"❌ API endpoint not found for plan {plan_name}. Check Razorpay credentials and API access.")
+                    logger.error(f"   Error details: {e}")
+                    error_count += 1
+                else:
+                    logger.error(f"❌ Failed to create plan {plan_name}: {e}")
+                    error_count += 1
+        
+        if created_count > 0:
+            logger.info(f"✅ Successfully created {created_count} subscription plans")
+        if skipped_count > 0:
+            logger.info(f"⏭️ Skipped {skipped_count} plans (already exist)")
+        if error_count > 0:
+            logger.warning(f"⚠️ {error_count} plans failed to create. Check Razorpay credentials and API permissions.")
+        if created_count == 0 and skipped_count == 0 and error_count > 0:
+            logger.error("❌ All plan creation attempts failed. Please verify:")
+            logger.error("   1. RAZORPAY_ID and RAZORPAY_KEY are correct")
+            logger.error("   2. API keys have subscription/plan creation permissions")
+            logger.error("   3. Razorpay account has subscriptions feature enabled")
+            
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize subscription plans: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
 
 @app.on_event("startup")
 async def startup_event():
@@ -83,6 +213,8 @@ async def startup_event():
     global mongodb_change_service
     try:
         mongodb_change_service = await initialize_mongodb_change_stream()
+        # Initialize subscription plans
+        await initialize_subscription_plans()
         logger.info("✅ All services initialized successfully")
     except Exception as e:
         logger.error(f"❌ Failed to initialize services: {e}")
@@ -1140,6 +1272,360 @@ async def append_chat_messages(payload: ChatMessagesAppend):
     )
     logger.info(f"✅ Persisted {inserted} messages for user {user_id}")
     return {"inserted": inserted}
+
+
+# ---------- Subscription endpoints ----------
+
+
+class CreatePlanRequest(BaseModel):
+    name: str
+    amount: int  # Amount in paise (smallest currency unit)
+    currency: str = "INR"
+    interval: int = 1
+    period: str = "monthly"  # daily, weekly, monthly, yearly
+    description: Optional[str] = None
+
+
+class CreateSubscriptionRequest(BaseModel):
+    plan_id: str
+    user_id: str
+    customer_notify: int = 1
+    total_count: Optional[int] = None
+    notes: Optional[Dict[str, str]] = None
+
+
+class CancelSubscriptionRequest(BaseModel):
+    subscription_id: str
+    cancel_at_cycle_end: bool = False
+
+
+@app.post("/subscriptions/plans")
+async def create_subscription_plan(request: CreatePlanRequest):
+    """Create a subscription plan in Razorpay (admin/one-time setup)"""
+    try:
+        if not razorpay_service or not razorpay_service.client:
+            raise HTTPException(
+                status_code=503,
+                detail="Razorpay service not available. Check RAZORPAY_ID and RAZORPAY_KEY."
+            )
+        
+        plan = razorpay_service.create_plan(
+            name=request.name,
+            amount=request.amount,
+            currency=request.currency,
+            interval=request.interval,
+            period=request.period,
+            description=request.description
+        )
+        
+        return {
+            "success": True,
+            "plan": plan
+        }
+    except Exception as e:
+        logger.error(f"❌ Failed to create subscription plan: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/subscriptions/plans")
+async def list_subscription_plans(count: int = 10, skip: int = 0):
+    """List available subscription plans"""
+    try:
+        if not razorpay_service or not razorpay_service.client:
+            raise HTTPException(
+                status_code=503,
+                detail="Razorpay service not available. Check RAZORPAY_ID and RAZORPAY_KEY."
+            )
+        
+        plans = razorpay_service.list_plans(count=count, skip=skip)
+        return {
+            "success": True,
+            "plans": plans
+        }
+    except Exception as e:
+        logger.error(f"❌ Failed to list subscription plans: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/subscriptions/config")
+async def get_subscription_config():
+    """Get Razorpay public configuration (Key ID) for frontend"""
+    try:
+        if not config.RAZORPAY_ID:
+            raise HTTPException(
+                status_code=503,
+                detail="Razorpay not configured"
+            )
+        
+        return {
+            "success": True,
+            "razorpay_key_id": config.RAZORPAY_ID
+        }
+    except Exception as e:
+        logger.error(f"❌ Failed to get subscription config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/subscriptions/create")
+async def create_subscription(request: CreateSubscriptionRequest):
+    """Create a subscription for a user"""
+    try:
+        if not razorpay_service or not razorpay_service.client:
+            raise HTTPException(
+                status_code=503,
+                detail="Razorpay service not available. Check RAZORPAY_ID and RAZORPAY_KEY."
+            )
+        
+        if not mongodb_service:
+            raise HTTPException(
+                status_code=503,
+                detail="MongoDB service not available"
+            )
+        
+        # Create subscription in Razorpay
+        subscription = razorpay_service.create_subscription(
+            plan_id=request.plan_id,
+            customer_notify=request.customer_notify,
+            total_count=request.total_count,
+            notes=request.notes
+        )
+        
+        # Get plan details
+        plan = razorpay_service.get_plan(request.plan_id)
+        
+        # Store subscription in MongoDB
+        from datetime import datetime
+        subscription_data = {
+            "user_id": request.user_id,
+            "razorpay_subscription_id": subscription.get("id"),
+            "razorpay_plan_id": request.plan_id,
+            "plan_name": plan.get("item", {}).get("name", "Unknown"),
+            "status": subscription.get("status", "created"),
+            "amount": plan.get("item", {}).get("amount", 0),
+            "currency": plan.get("item", {}).get("currency", "INR"),
+            "current_start": subscription.get("current_start"),
+            "current_end": subscription.get("current_end"),
+            "next_billing_at": subscription.get("end_at"),
+            "created_at": datetime.utcnow(),
+            "razorpay_data": subscription  # Store full Razorpay response
+        }
+        
+        mongodb_service.upsert_subscription(subscription_data)
+        
+        return {
+            "success": True,
+            "subscription_id": subscription.get("id"),
+            "short_url": subscription.get("short_url"),
+            "subscription": subscription
+        }
+    except Exception as e:
+        logger.error(f"❌ Failed to create subscription: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/subscriptions/status")
+async def get_subscription_status(user_id: Optional[str] = None):
+    """Get user's subscription status"""
+    try:
+        if not mongodb_service:
+            raise HTTPException(
+                status_code=503,
+                detail="MongoDB service not available"
+            )
+        
+        if not user_id:
+            return {
+                "success": True,
+                "subscription": None,
+                "message": "No user_id provided"
+            }
+        
+        subscription = mongodb_service.get_user_subscription(user_id=user_id)
+        
+        if subscription:
+            # Optionally fetch latest data from Razorpay
+            if razorpay_service and razorpay_service.client:
+                try:
+                    razorpay_sub = razorpay_service.get_subscription(
+                        subscription.get("razorpay_subscription_id")
+                    )
+                    # Update status if changed
+                    if razorpay_sub.get("status") != subscription.get("status"):
+                        mongodb_service.update_subscription_status(
+                            subscription.get("razorpay_subscription_id"),
+                            razorpay_sub.get("status"),
+                            {
+                                "current_start": razorpay_sub.get("current_start"),
+                                "current_end": razorpay_sub.get("current_end"),
+                                "next_billing_at": razorpay_sub.get("end_at")
+                            }
+                        )
+                        subscription["status"] = razorpay_sub.get("status")
+                except Exception as e:
+                    logger.warning(f"Failed to sync with Razorpay: {e}")
+        
+        return {
+            "success": True,
+            "subscription": subscription
+        }
+    except Exception as e:
+        logger.error(f"❌ Failed to get subscription status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/subscriptions/cancel")
+async def cancel_subscription(request: CancelSubscriptionRequest):
+    """Cancel user's subscription"""
+    try:
+        if not razorpay_service or not razorpay_service.client:
+            raise HTTPException(
+                status_code=503,
+                detail="Razorpay service not available. Check RAZORPAY_ID and RAZORPAY_KEY."
+            )
+        
+        if not mongodb_service:
+            raise HTTPException(
+                status_code=503,
+                detail="MongoDB service not available"
+            )
+        
+        # Cancel subscription in Razorpay
+        subscription = razorpay_service.cancel_subscription(
+            subscription_id=request.subscription_id,
+            cancel_at_cycle_end=request.cancel_at_cycle_end
+        )
+        
+        # Update status in MongoDB
+        mongodb_service.update_subscription_status(
+            request.subscription_id,
+            subscription.get("status", "cancelled"),
+            {
+                "current_start": subscription.get("current_start"),
+                "current_end": subscription.get("current_end"),
+                "next_billing_at": subscription.get("end_at")
+            }
+        )
+        
+        return {
+            "success": True,
+            "subscription": subscription
+        }
+    except Exception as e:
+        logger.error(f"❌ Failed to cancel subscription: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/webhooks/razorpay")
+async def razorpay_webhook(request: Request):
+    """Handle Razorpay webhook events"""
+    try:
+        if not razorpay_service:
+            raise HTTPException(
+                status_code=503,
+                detail="Razorpay service not available"
+            )
+        
+        if not mongodb_service:
+            raise HTTPException(
+                status_code=503,
+                detail="MongoDB service not available"
+            )
+        
+        # Get raw body for signature verification
+        body = await request.body()
+        body_str = body.decode('utf-8')
+        
+        # Get signature from header
+        signature = request.headers.get("X-Razorpay-Signature", "")
+        
+        # Verify webhook signature
+        if not razorpay_service.verify_webhook_signature(body_str, signature):
+            logger.warning("⚠️ Invalid webhook signature")
+            raise HTTPException(status_code=400, detail="Invalid webhook signature")
+        
+        # Parse webhook payload from body string
+        webhook_data = json.loads(body_str)
+        event = webhook_data.get("event")
+        payload = webhook_data.get("payload", {})
+        
+        logger.info(f"📥 Received Razorpay webhook: {event}")
+        
+        # Handle different webhook events
+        if event == "subscription.activated":
+            subscription = payload.get("subscription", {}).get("entity", {})
+            subscription_id = subscription.get("id")
+            
+            if subscription_id:
+                mongodb_service.update_subscription_status(
+                    subscription_id,
+                    "active",
+                    {
+                        "current_start": subscription.get("current_start"),
+                        "current_end": subscription.get("current_end"),
+                        "next_billing_at": subscription.get("end_at")
+                    }
+                )
+        
+        elif event == "subscription.charged":
+            subscription = payload.get("subscription", {}).get("entity", {})
+            payment = payload.get("payment", {}).get("entity", {})
+            subscription_id = subscription.get("id")
+            
+            if subscription_id:
+                # Update subscription with payment info
+                update_data = {
+                    "current_start": subscription.get("current_start"),
+                    "current_end": subscription.get("current_end"),
+                    "next_billing_at": subscription.get("end_at"),
+                    "last_payment_id": payment.get("id"),
+                    "last_payment_amount": payment.get("amount"),
+                    "last_payment_date": payment.get("created_at")
+                }
+                mongodb_service.update_subscription_status(
+                    subscription_id,
+                    subscription.get("status", "active"),
+                    update_data
+                )
+        
+        elif event == "subscription.cancelled":
+            subscription = payload.get("subscription", {}).get("entity", {})
+            subscription_id = subscription.get("id")
+            
+            if subscription_id:
+                mongodb_service.update_subscription_status(
+                    subscription_id,
+                    "cancelled",
+                    {
+                        "current_start": subscription.get("current_start"),
+                        "current_end": subscription.get("current_end"),
+                        "next_billing_at": subscription.get("end_at")
+                    }
+                )
+        
+        elif event == "payment.failed":
+            payment = payload.get("payment", {}).get("entity", {})
+            subscription_id = payment.get("subscription_id")
+            
+            if subscription_id:
+                # Update subscription to reflect failed payment
+                subscription = razorpay_service.get_subscription(subscription_id)
+                mongodb_service.update_subscription_status(
+                    subscription_id,
+                    subscription.get("status", "pending"),
+                    {
+                        "last_payment_failed": True,
+                        "last_payment_failure_reason": payment.get("error_description")
+                    }
+                )
+        
+        return {"success": True, "message": "Webhook processed"}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to process webhook: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=config.SERVICE_PORT)

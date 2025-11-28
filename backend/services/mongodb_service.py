@@ -51,6 +51,7 @@ class MongoDBService:
             # Additional collections used by other features
             self.chat_sessions = self.db["chat_sessions"]
             self.chat_messages = self.db["chat_messages"]
+            self.subscriptions = self.db["subscriptions"]
             
             logger.info("✅ Successfully connected to MongoDB")
             
@@ -379,6 +380,162 @@ class MongoDBService:
             docs.append(doc)
         return docs
 
+    # ---------- Subscription management ----------
+    
+    def upsert_subscription(self, subscription_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create or update a subscription document
+        
+        Expected keys in subscription_data:
+        - user_id: User ID
+        - razorpay_subscription_id: Razorpay subscription ID
+        - razorpay_plan_id: Razorpay plan ID
+        - plan_name: Plan name (e.g., "Pro")
+        - status: Subscription status (e.g., "active", "cancelled", "expired")
+        - amount: Subscription amount
+        - currency: Currency code
+        - current_start: Current billing cycle start
+        - current_end: Current billing cycle end
+        - next_billing_at: Next billing date
+        - created_at: Subscription creation date
+        - updated_at: Last update date
+        """
+        if self.subscriptions is None:
+            raise RuntimeError("subscriptions collection not initialised")
+        
+        from datetime import datetime
+        
+        razorpay_subscription_id = subscription_data.get("razorpay_subscription_id")
+        if not razorpay_subscription_id:
+            raise ValueError("razorpay_subscription_id is required")
+        
+        now = datetime.utcnow()
+        
+        # Prepare update data
+        update_data = {
+            **subscription_data,
+            "updated_at": now,
+        }
+        
+        # Set created_at only if creating new subscription
+        existing = self.subscriptions.find_one(
+            {"razorpay_subscription_id": razorpay_subscription_id}
+        )
+        
+        if not existing:
+            update_data["created_at"] = subscription_data.get("created_at") or now
+        
+        # Upsert subscription
+        result = self.subscriptions.find_one_and_update(
+            {"razorpay_subscription_id": razorpay_subscription_id},
+            {"$set": update_data},
+            upsert=True,
+            return_document=True
+        )
+        
+        result["_id"] = str(result["_id"])
+        logger.info(f"✅ Upserted subscription: {razorpay_subscription_id}")
+        return result
+    
+    def get_user_subscription(
+        self,
+        user_id: str,
+        status: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get user's active subscription
+        
+        Args:
+            user_id: User ID
+            status: Filter by status (e.g., "active"). If None, returns most recent
+            
+        Returns:
+            Subscription document or None
+        """
+        if self.subscriptions is None:
+            return None
+        
+        query = {"user_id": user_id}
+        if status:
+            query["status"] = status
+        
+        subscription = self.subscriptions.find_one(
+            query,
+            sort=[("created_at", -1)]
+        )
+        
+        if subscription:
+            subscription["_id"] = str(subscription["_id"])
+        
+        return subscription
+    
+    def update_subscription_status(
+        self,
+        razorpay_subscription_id: str,
+        status: str,
+        additional_data: Optional[Dict[str, Any]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Update subscription status from webhook events
+        
+        Args:
+            razorpay_subscription_id: Razorpay subscription ID
+            status: New status
+            additional_data: Additional fields to update
+            
+        Returns:
+            Updated subscription document or None
+        """
+        if self.subscriptions is None:
+            return None
+        
+        from datetime import datetime
+        
+        update_data = {
+            "status": status,
+            "updated_at": datetime.utcnow()
+        }
+        
+        if additional_data:
+            update_data.update(additional_data)
+        
+        result = self.subscriptions.find_one_and_update(
+            {"razorpay_subscription_id": razorpay_subscription_id},
+            {"$set": update_data},
+            return_document=True
+        )
+        
+        if result:
+            result["_id"] = str(result["_id"])
+            logger.info(f"✅ Updated subscription status: {razorpay_subscription_id} -> {status}")
+        
+        return result
+    
+    def get_subscription_by_razorpay_id(
+        self,
+        razorpay_subscription_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get subscription by Razorpay subscription ID
+        
+        Args:
+            razorpay_subscription_id: Razorpay subscription ID
+            
+        Returns:
+            Subscription document or None
+        """
+        if self.subscriptions is None:
+            return None
+        
+        subscription = self.subscriptions.find_one(
+            {"razorpay_subscription_id": razorpay_subscription_id}
+        )
+        
+        if subscription:
+            subscription["_id"] = str(subscription["_id"])
+        
+        return subscription
+    
     def close(self):
         """Close MongoDB connection"""
         if self.client:

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { getApiBaseUrl } from "../../services/api";
-// eslint-disable-next-line no-unused-vars
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Send,
@@ -19,6 +19,8 @@ import logoImg from "../../assets/logo.png";
 
 const ChatbotView = ({
   isDarkMode,
+  setIsDarkMode,
+  onLearnClick,
   sessionId,
   initialMessages = [],
   onTurnPersist,
@@ -31,7 +33,7 @@ const ChatbotView = ({
       if (textParam && textParam.trim()) {
         try {
           return decodeURIComponent(textParam.trim());
-        } catch {
+        } catch (e) {
           return textParam.trim();
         }
       }
@@ -53,6 +55,7 @@ const ChatbotView = ({
   const recordingTimerRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
   const dropZoneRef = useRef(null);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
     // Reset messages when session changes
@@ -85,9 +88,7 @@ const ChatbotView = ({
       ) {
         try {
           mediaRecorderRef.current.stop();
-        } catch {
-          // Ignore errors when stopping media recorder
-        }
+        } catch (_) {}
       }
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current);
@@ -477,7 +478,7 @@ const ChatbotView = ({
         {/* Messages List */}
         {messages.length > 0 && (
           <div className="flex flex-col gap-4">
-            {messages.map((message) => {
+            {messages.map((message, idx) => {
             const isUser = message.type === "user";
             const alignment = isUser ? "items-end" : "items-start";
             const bubbleAlignment = isUser ? "justify-end" : "justify-start";
