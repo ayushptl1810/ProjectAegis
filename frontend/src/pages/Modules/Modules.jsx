@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+// eslint-disable-next-line no-unused-vars
 import { motion } from "framer-motion";
 import { Search, ArrowLeft, ListChecks } from "lucide-react";
 import ModuleCard from "../../components/ModuleCard";
@@ -15,7 +16,7 @@ const Modules = () => {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [difficultyFilter, setDifficultyFilter] = useState("all");
-  const [userProgress, setUserProgress] = useState({
+  const [userProgress] = useState({
     level: "beginner",
     completedModules: [],
     points: 0,

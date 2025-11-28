@@ -1,3 +1,4 @@
+// eslint-disable-next-line no-unused-vars
 import { motion, AnimatePresence } from "framer-motion";
 import { useMemo } from "react";
 import { X, ExternalLink, Clock } from "lucide-react";
@@ -143,9 +144,9 @@ const RumourModal = ({ post, isOpen, onClose }) => {
                 </p>
                 <p className="mt-2 text-base text-gray-100 flex items-center gap-2">
                   <Clock className="h-4 w-4 text-gray-400" />
-                  {new Date(
-                    post.verification?.verification_date || Date.now()
-                  ).toLocaleString()}
+                  {post.verification?.verification_date
+                    ? new Date(post.verification.verification_date).toLocaleString()
+                    : "Not verified"}
                 </p>
               </div>
             </div>

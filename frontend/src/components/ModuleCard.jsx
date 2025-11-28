@@ -1,5 +1,4 @@
 import React from "react";
-import { motion } from "framer-motion";
 import { Clock, CheckCircle } from "lucide-react";
 import MotionText from "./MotionText";
 import MotionCard from "./MotionCard";

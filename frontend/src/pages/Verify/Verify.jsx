@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from "react";
+// eslint-disable-next-line no-unused-vars
 import { motion } from "framer-motion";
 import { PenSquare, Search } from "lucide-react";
 import logoImg from "../../assets/logo.png";

@@ -1,5 +1,6 @@
 import { Suspense, useState } from "react";
 import { Link } from "react-router-dom";
+// eslint-disable-next-line no-unused-vars
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Image,
@@ -13,6 +14,16 @@ import Hero3D from "../../components/Hero3D";
 
 const Home = () => {
   const [expandedType, setExpandedType] = useState(null);
+
+  // Generate random values for particles once using lazy initializer
+  const [particleConfigs] = useState(() => {
+    return Array.from({ length: 20 }, () => ({
+      duration: 3 + Math.random() * 2,
+      delay: Math.random() * 2,
+      left: Math.random() * 100,
+      top: Math.random() * 100,
+    }));
+  });
 
   const verificationTypes = [
     {
@@ -142,7 +153,7 @@ const Home = () => {
         />
 
         {/* Floating particles */}
-        {[...Array(20)].map((_, i) => (
+        {particleConfigs.map((config, i) => (
           <motion.div
             key={i}
             className="absolute w-1 h-1 bg-blue-400 rounded-full"
@@ -152,14 +163,14 @@ const Home = () => {
               scale: [1, 1.5, 1],
             }}
             transition={{
-              duration: 3 + Math.random() * 2,
+              duration: config.duration,
               repeat: Infinity,
-              delay: Math.random() * 2,
+              delay: config.delay,
               ease: "easeInOut",
             }}
             style={{
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
+              left: `${config.left}%`,
+              top: `${config.top}%`,
             }}
           />
         ))}

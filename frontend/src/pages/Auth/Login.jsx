@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+// eslint-disable-next-line no-unused-vars
 import { motion } from "framer-motion";
 import { Mail, Lock, LogIn } from "lucide-react";
 import { getApiBaseUrl } from "../../services/api";
@@ -38,7 +39,7 @@ const Login = () => {
         const data = await response.json();
         setError(data.detail || "Login failed. Please check your credentials.");
       }
-    } catch (err) {
+    } catch {
       setError("Network error. Please try again.");
     } finally {
       setLoading(false);
