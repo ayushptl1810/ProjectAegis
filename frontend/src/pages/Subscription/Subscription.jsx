@@ -6,7 +6,7 @@ import { subscriptionService } from "../../services/api";
 import { useAuth } from "../../contexts/AuthContext";
 
 const Subscription = () => {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -151,6 +151,10 @@ const Subscription = () => {
           handler: function (response) {
             console.log("✅ Payment successful:", response);
             setLoading(false);
+            // Refresh user data to get updated subscription tier
+            if (refreshUser) {
+              refreshUser();
+            }
             // Show success message or redirect
             alert("Subscription activated successfully! Welcome to Pro plan.");
             // Optionally reload or redirect

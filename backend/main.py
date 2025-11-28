@@ -1070,8 +1070,11 @@ class LoginRequest(BaseModel):
     password: str
 
 class SignupRequest(BaseModel):
+    name: str
     email: str
     password: str
+    phone_number: Optional[str] = None
+    age: Optional[int] = None
     domain_preferences: Optional[List[str]] = []
 
 class UserResponse(BaseModel):
@@ -1090,8 +1093,11 @@ async def signup(request: SignupRequest):
         password_hash = hashlib.sha256(request.password.encode()).hexdigest()
         
         user_data = {
+            "name": request.name,
             "email": request.email,
             "password": password_hash,
+            "phone_number": request.phone_number,
+            "age": request.age,
             "domain_preferences": request.domain_preferences or [],
             "created_at": None,  # Will be set by MongoDB service
             "updated_at": None,
@@ -1106,8 +1112,11 @@ async def signup(request: SignupRequest):
             "message": "User created successfully",
             "token": token,
             "user": {
+                "name": user.get("name"),
                 "email": user["email"],
                 "id": user["id"],
+                "phone_number": user.get("phone_number"),
+                "age": user.get("age"),
                 "domain_preferences": user.get("domain_preferences", [])
             }
         }
@@ -1142,8 +1151,11 @@ async def login(request: LoginRequest):
             "message": "Login successful",
             "token": token,
             "user": {
+                "name": user.get("name"),
                 "email": user["email"],
                 "id": user["id"],
+                "phone_number": user.get("phone_number"),
+                "age": user.get("age"),
                 "domain_preferences": user.get("domain_preferences", [])
             }
         }
@@ -1177,10 +1189,22 @@ async def get_current_user(request: Request):
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         
+        # Get subscription info to determine tier
+        subscription = None
+        subscription_tier = "Free"
+        if user.get("id"):
+            subscription = mongodb_service.get_user_subscription(user_id=user["id"])
+            if subscription and subscription.get("status") == "active":
+                subscription_tier = subscription.get("plan_name", "Free")
+        
         return {
+            "name": user.get("name"),
             "email": user["email"],
             "id": user["id"],
-            "domain_preferences": user.get("domain_preferences", [])
+            "phone_number": user.get("phone_number"),
+            "age": user.get("age"),
+            "domain_preferences": user.get("domain_preferences", []),
+            "subscription_tier": subscription_tier
         }
     except HTTPException:
         raise

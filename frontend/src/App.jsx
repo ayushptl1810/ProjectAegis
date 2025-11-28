@@ -9,6 +9,7 @@ import Modules from "./pages/Modules/Modules";
 import Login from "./pages/Auth/Login";
 import Signup from "./pages/Auth/Signup";
 import Subscription from "./pages/Subscription/Subscription";
+import Profile from "./pages/Profile/Profile";
 import ProtectedRoute from "./components/ProtectedRoute";
 import "./App.css";
 
@@ -38,6 +39,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <Subscription />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/profile"
+              element={
+                <ProtectedRoute>
+                  <Profile />
                 </ProtectedRoute>
               }
             />

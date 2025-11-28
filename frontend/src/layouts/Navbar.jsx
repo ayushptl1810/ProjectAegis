@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 // eslint-disable-next-line no-unused-vars
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, X, AlertTriangle, LogOut } from "lucide-react";
+import { Menu, X, AlertTriangle, LogOut, User } from "lucide-react";
 import logo from "../assets/logo.png";
 import RumoursSidebar from "../components/RumoursSidebar";
 import RumourModal from "../components/RumourModal";
@@ -105,6 +105,19 @@ const Navbar = () => {
               {/* Login/Logout Button */}
               {isAuthenticated ? (
                 <div className="ml-4 flex items-center gap-3">
+                  <button
+                    onClick={() => navigate("/profile")}
+                    className={`p-2 rounded-lg transition-colors ${
+                      user?.subscription_tier === "Pro"
+                        ? "text-cyan-400 hover:bg-cyan-500/20"
+                        : user?.subscription_tier === "Enterprise"
+                        ? "text-purple-400 hover:bg-purple-500/20"
+                        : "text-gray-400 hover:bg-gray-700"
+                    }`}
+                    title={`Profile - ${user?.subscription_tier || "Free"} Tier`}
+                  >
+                    <User className="w-5 h-5" />
+                  </button>
                   <span className="text-sm text-gray-300">{user?.email}</span>
                   <button
                     onClick={handleLogout}
@@ -163,16 +176,26 @@ const Navbar = () => {
                   </Link>
                 ))}
                 {isAuthenticated ? (
-                  <button
-                    onClick={() => {
-                      handleLogout();
-                      setMobileMenuOpen(false);
-                    }}
-                    className="block w-full text-left px-4 py-2 bg-gray-700 text-white rounded-lg text-sm font-medium hover:bg-gray-600 flex items-center gap-2"
-                  >
-                    <LogOut className="w-4 h-4" />
-                    Logout
-                  </button>
+                  <>
+                    <Link
+                      to="/profile"
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="block px-4 py-2 rounded-lg text-sm font-medium text-gray-300 hover:bg-gray-700 flex items-center gap-2"
+                    >
+                      <User className="w-4 h-4" />
+                      Profile
+                    </Link>
+                    <button
+                      onClick={() => {
+                        handleLogout();
+                        setMobileMenuOpen(false);
+                      }}
+                      className="block w-full text-left px-4 py-2 bg-gray-700 text-white rounded-lg text-sm font-medium hover:bg-gray-600 flex items-center gap-2"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      Logout
+                    </button>
+                  </>
                 ) : (
                   <Link
                     to="/login"

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 // eslint-disable-next-line no-unused-vars
 import { motion } from "framer-motion";
-import { Mail, Lock, UserPlus } from "lucide-react";
+import { Mail, Lock, UserPlus, Phone, Calendar } from "lucide-react";
 import { getApiBaseUrl } from "../../services/api";
 import { useAuth } from "../../contexts/AuthContext";
 
@@ -21,9 +21,12 @@ const Signup = () => {
   const navigate = useNavigate();
   const { login } = useAuth();
   const [formData, setFormData] = useState({
+    name: "",
     email: "",
     password: "",
     confirmPassword: "",
+    phoneNumber: "",
+    age: "",
     domainPreferences: [],
   });
   const [error, setError] = useState("");
@@ -52,8 +55,11 @@ const Signup = () => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          name: formData.name,
           email: formData.email,
           password: formData.password,
+          phone_number: formData.phoneNumber,
+          age: formData.age ? parseInt(formData.age) : null,
           domain_preferences: formData.domainPreferences,
         }),
       });
@@ -95,6 +101,25 @@ const Signup = () => {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
+                Full Name
+              </label>
+              <div className="relative">
+                <UserPlus className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type="text"
+                  required
+                  value={formData.name}
+                  onChange={(e) =>
+                    setFormData({ ...formData, name: e.target.value })
+                  }
+                  className="w-full pl-10 pr-4 py-2 bg-gray-700 text-white rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="John Doe"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
                 Email
               </label>
               <div className="relative">
@@ -109,6 +134,48 @@ const Signup = () => {
                   className="w-full pl-10 pr-4 py-2 bg-gray-700 text-white rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="you@example.com"
                 />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Phone Number
+                </label>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type="tel"
+                    required
+                    value={formData.phoneNumber}
+                    onChange={(e) =>
+                      setFormData({ ...formData, phoneNumber: e.target.value })
+                    }
+                    className="w-full pl-10 pr-4 py-2 bg-gray-700 text-white rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="+1234567890"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Age
+                </label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type="number"
+                    required
+                    min="13"
+                    max="120"
+                    value={formData.age}
+                    onChange={(e) =>
+                      setFormData({ ...formData, age: e.target.value })
+                    }
+                    className="w-full pl-10 pr-4 py-2 bg-gray-700 text-white rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="25"
+                  />
+                </div>
               </div>
             </div>
 
