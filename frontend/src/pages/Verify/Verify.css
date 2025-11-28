@@ -1,44 +1,9 @@
-.verify-page {
-    max-width: 800px;
-    margin: 2rem auto;
-    padding: 2rem;
-  }
-  
-  .verify-page h1 {
-    margin-bottom: 2rem;
-  }
-  
-  .verify-page form {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-  
-  .verify-page textarea {
-    width: 100%;
-    padding: 1rem;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    font-size: 1rem;
-  }
-  
-  .verify-page button {
-    padding: 0.75rem 2rem;
-    background-color: #3498db;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-  
-  .verify-page button:disabled {
-    background-color: #95a5a6;
-    cursor: not-allowed;
-  }
-  
-  .result {
-    margin-top: 2rem;
-    padding: 1rem;
-    background-color: #f5f5f5;
-    border-radius: 4px;
-  }
+/* Verify page specific styles */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
