@@ -181,7 +181,7 @@ const Home = () => {
         className="relative min-h-screen flex items-center"
         style={{ zIndex: 1 }}
       >
-        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16 w-full">
+        <div className="relative z-10 layout-container py-12 lg:py-16 w-full">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
             {/* Left Side - Content (65%) */}
             <motion.div
@@ -190,20 +190,20 @@ const Home = () => {
               transition={{ duration: 0.8 }}
               className="lg:col-span-8"
             >
-              <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold text-white mb-6 leading-tight">
+              <h1 className="text-4xl sm:text-5xl lg:text-7xl font-bold text-white mb-6 leading-tight">
                 Fight Misinformation
                 <span className="block bg-gradient-to-r from-blue-400 via-purple-400 to-cyan-400 bg-clip-text text-transparent">
                   with AI Power
                 </span>
               </h1>
-              <p className="text-xl text-gray-300 mb-8 leading-relaxed">
+              <p className="text-lg sm:text-xl lg:text-[1.3rem] text-gray-300 mb-8 leading-relaxed">
                 Verify claims, detect deepfakes, and get accurate fact-checks in
                 seconds. Trust the truth, not the rumors.
               </p>
-              <div className="flex flex-col sm:flex-row gap-4">
+              <div className="flex flex-row flex-wrap gap-4">
                 <Link
                   to="/verify"
-                  className="group relative px-8 py-4 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-all overflow-hidden"
+                  className="group relative flex-1 min-w-[140px] px-6 py-4 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-all overflow-hidden text-center"
                 >
                   <span className="relative z-10">Start Verification</span>
                   <motion.div
@@ -215,7 +215,7 @@ const Home = () => {
                 </Link>
                 <Link
                   to="/modules"
-                  className="px-8 py-4 bg-transparent border-2 border-gray-700 text-white rounded-lg font-semibold hover:border-blue-500 transition-colors text-center"
+                  className="flex-1 min-w-[140px] px-6 py-4 bg-transparent border-2 border-gray-700 text-white rounded-lg font-semibold hover:border-blue-500 transition-colors text-center"
                 >
                   Explore Modules
                 </Link>
@@ -227,7 +227,7 @@ const Home = () => {
               initial={{ opacity: 0, x: 50 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.8, delay: 0.2 }}
-              className="relative h-[500px] lg:h-[700px] lg:col-span-4"
+              className="hidden lg:block relative h-[700px] lg:col-span-4"
             >
               <Suspense
                 fallback={
@@ -251,7 +251,7 @@ const Home = () => {
 
       {/* Four-Card Section */}
       <section className="py-20 relative" style={{ zIndex: 1 }}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="layout-container">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -324,7 +324,7 @@ const Home = () => {
 
       {/* Verification Process - Horizontal Timeline */}
       <section className="py-16 relative" style={{ zIndex: 1 }}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="layout-container">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -342,8 +342,8 @@ const Home = () => {
 
           {/* Horizontal Timeline Layout */}
           <div className="relative">
-            {/* Straight connecting line */}
-            <div className="absolute top-36 left-0 right-0 h-1 bg-gradient-to-r from-blue-600 via-purple-600 to-cyan-600 z-0" />
+            {/* Straight connecting line - show on larger screens where steps are in a row */}
+            <div className="hidden lg:block absolute top-36 left-0 right-0 h-1 bg-gradient-to-r from-blue-600 via-purple-600 to-cyan-600 z-0" />
 
             {/* Steps in a row */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-8 relative z-10">
