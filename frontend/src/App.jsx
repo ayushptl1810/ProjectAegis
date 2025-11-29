@@ -10,6 +10,8 @@ import Login from "./pages/Auth/Login";
 import Signup from "./pages/Auth/Signup";
 import Subscription from "./pages/Subscription/Subscription";
 import Profile from "./pages/Profile/Profile";
+import PrivacyPolicy from "./pages/Legal/PrivacyPolicy";
+import TermsOfService from "./pages/Legal/TermsOfService";
 import ProtectedRoute from "./components/ProtectedRoute";
 import "./App.css";
 
@@ -55,6 +57,8 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            <Route path="/privacy" element={<PrivacyPolicy />} />
+            <Route path="/terms" element={<TermsOfService />} />
           </Routes>
         </main>
         {!footerHiddenRoutes.has(location.pathname) && <Footer />}
