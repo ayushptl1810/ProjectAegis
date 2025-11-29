@@ -26,6 +26,8 @@ import razorpay.errors
 from utils.file_utils import save_upload_file, cleanup_temp_files
 from config import config
 from services.deepfake_checker import detect_audio_deepfake
+from services.youtube_caption import get_youtube_transcript_ytdlp
+import google.generativeai as genai
 
 app = FastAPI(
     title="Visual Verification Service",
@@ -468,6 +470,304 @@ async def _extract_media_from_url(url: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _is_youtube_url(url: str) -> bool:
+    """Check if URL is a YouTube URL"""
+    url_lower = url.lower()
+    youtube_domains = ['youtube.com', 'youtu.be', 'www.youtube.com', 'www.youtu.be', 'm.youtube.com']
+    return any(domain in url_lower for domain in youtube_domains)
+
+
+async def _generate_claims_summary(claim_results: List[Dict[str, Any]], gemini_model) -> str:
+    """Generate a comprehensive summary of all claim verification results using Gemini"""
+    try:
+        # Prepare claims data for Gemini
+        claims_data = []
+        for i, result in enumerate(claim_results, 1):
+            claims_data.append({
+                "number": i,
+                "claim": result.get("claim_text", ""),
+                "verdict": result.get("verdict", "uncertain"),
+                "explanation": result.get("message", "No explanation available")
+            })
+        
+        prompt = f"""You are a fact-checking summary writer. Based on the following verified claims from a YouTube video, create a comprehensive, user-friendly summary.
+
+CLAIM VERIFICATION RESULTS:
+{json.dumps(claims_data, indent=2)}
+
+Your task is to create a clear, concise summary that:
+1. Lists each claim with its verdict (TRUE/FALSE/MIXED/UNCERTAIN)
+2. Explains WHY each claim is true or false in simple terms
+3. Highlights the most important findings
+4. Provides an overall assessment of the video's factual accuracy
+
+Format your response as a well-structured summary that is easy to read. Use clear sections and bullet points where appropriate.
+
+IMPORTANT: 
+- Be concise but thorough
+- Explain the reasoning for each verdict
+- Focus on the most significant false or misleading claims
+- Keep the tone professional and informative
+- Do NOT use markdown formatting, just plain text with clear structure
+
+Return ONLY the summary text, no JSON or code blocks."""
+        
+        response = gemini_model.generate_content(prompt)
+        response_text = response.text.strip()
+        
+        # Clean up response if needed
+        if response_text.startswith('```'):
+            response_text = re.sub(r'^```[a-z]*\n?', '', response_text, flags=re.IGNORECASE)
+            response_text = re.sub(r'```$', '', response_text, flags=re.IGNORECASE).strip()
+        
+        print(f"✅ Generated comprehensive summary")
+        return response_text
+        
+    except Exception as e:
+        print(f"❌ Error generating summary with Gemini: {e}")
+        import traceback
+        print(traceback.format_exc())
+        # Fallback to simple concatenation
+        summary_parts = []
+        summary_parts.append(f"Analyzed {len(claim_results)} controversial claim(s) from the video transcript:\n")
+        
+        for i, result in enumerate(claim_results, 1):
+            claim_text = result.get("claim_text", "")
+            verdict = result.get("verdict", "uncertain")
+            message = result.get("message", "No explanation available")
+            
+            claim_display = claim_text[:150] + "..." if len(claim_text) > 150 else claim_text
+            
+            verdict_label = {
+                "true": "✅ TRUE",
+                "false": "❌ FALSE",
+                "mixed": "⚠️ MIXED",
+                "uncertain": "❓ UNCERTAIN",
+                "error": "⚠️ ERROR"
+            }.get(verdict, "❓ UNCERTAIN")
+            
+            summary_parts.append(f"\n{i}. {verdict_label}: {claim_display}")
+            summary_parts.append(f"   Explanation: {message}")
+        
+        return "\n".join(summary_parts)
+
+
+async def _extract_claims_from_captions(captions: str, gemini_model) -> List[str]:
+    """Extract top 5 controversial claims from video captions using Gemini"""
+    try:
+        prompt = f"""You are a fact-checking assistant. Analyze the following video transcript and extract the TOP 5 MOST CONTROVERSIAL and verifiable claims that were mentioned in the video.
+
+VIDEO TRANSCRIPT:
+{captions}
+
+Your task is to identify the 5 MOST controversial, factual claims that can be verified. Prioritize:
+- Claims about events, statistics, or facts that are controversial or disputed
+- Claims about people, organizations, or institutions that are potentially misleading
+- Claims that are specific enough to be fact-checked and are likely to be false or disputed
+- Claims that have significant impact or are widely discussed
+
+Ignore:
+- General opinions or subjective statements
+- Questions or hypothetical scenarios
+- Vague statements without specific claims
+- Small talk or filler content
+
+IMPORTANT: Return EXACTLY 5 claims (or fewer if the video doesn't contain 5 verifiable controversial claims). Rank them by controversy/importance.
+
+Return ONLY a JSON object in this exact format:
+{{
+    "claims": [
+        "Claim 1 text here (most controversial)",
+        "Claim 2 text here",
+        "Claim 3 text here",
+        "Claim 4 text here",
+        "Claim 5 text here"
+    ]
+}}
+
+Return ONLY the JSON object, no other text or explanation."""
+        
+        response = gemini_model.generate_content(prompt)
+        response_text = response.text.strip()
+        
+        # Clean up response if needed
+        if response_text.startswith('```json'):
+            response_text = response_text.replace('```json', '').replace('```', '').strip()
+        elif response_text.startswith('```'):
+            response_text = response_text.replace('```', '').strip()
+        
+        # Parse JSON response
+        parsed = json.loads(response_text)
+        claims = parsed.get("claims", [])
+        
+        # Filter out empty claims and limit to 5
+        claims = [c.strip() for c in claims if c and c.strip()][:5]
+        
+        print(f"✅ Extracted {len(claims)} claims from video captions")
+        return claims
+        
+    except Exception as e:
+        print(f"❌ Error extracting claims from captions: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return []
+
+
+async def _verify_youtube_video(url: str, claim_context: str, claim_date: str) -> Dict[str, Any]:
+    """Verify a YouTube video by extracting captions, extracting claims, and verifying each claim"""
+    import tempfile
+    import asyncio
+    
+    try:
+        print(f"🎥 Starting YouTube video verification for: {url}")
+        
+        # Step 1: Extract captions
+        print(f"📝 Extracting captions from YouTube video...")
+        # Create a temporary file for the transcript output
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as temp_file:
+            temp_output_file = temp_file.name
+        
+        # Run the synchronous function in an executor to avoid blocking
+        loop = asyncio.get_event_loop()
+        captions = await loop.run_in_executor(
+            None, 
+            get_youtube_transcript_ytdlp, 
+            url, 
+            temp_output_file
+        )
+        
+        # Clean up the temporary output file if it was created
+        try:
+            if os.path.exists(temp_output_file):
+                os.unlink(temp_output_file)
+        except Exception as cleanup_error:
+            print(f"⚠️ Warning: Could not clean up temp file {temp_output_file}: {cleanup_error}")
+        
+        if not captions:
+            return {
+                "verified": False,
+                "verdict": "error",
+                "message": "Could not extract captions from the YouTube video. The video may not have captions available.",
+                "details": {
+                    "video_url": url,
+                    "error": "Caption extraction failed"
+                },
+                "source": "youtube_url"
+            }
+        
+        print(f"✅ Extracted {len(captions)} characters of captions")
+        
+        # Step 2: Extract claims using Gemini
+        print(f"🔍 Extracting controversial claims from captions...")
+        genai.configure(api_key=config.GEMINI_API_KEY)
+        gemini_model = genai.GenerativeModel(config.GEMINI_MODEL)
+        
+        claims = await _extract_claims_from_captions(captions, gemini_model)
+        
+        if not claims:
+            return {
+                "verified": False,
+                "verdict": "uncertain",
+                "message": "No verifiable claims were found in the video transcript. The video may contain only opinions, questions, or non-factual content.",
+                "details": {
+                    "video_url": url,
+                    "captions_length": len(captions),
+                    "claims_extracted": 0
+                },
+                "source": "youtube_url"
+            }
+        
+        print(f"✅ Extracted {len(claims)} claims, starting verification...")
+        
+        # Step 3: Verify each claim
+        claim_results = []
+        for i, claim in enumerate(claims, 1):
+            print(f"🔍 Verifying claim {i}/{len(claims)}: {claim[:100]}...")
+            try:
+                verification_result = await text_fact_checker.verify(
+                    text_input=claim,
+                    claim_context=f"Claim from YouTube video: {url}",
+                    claim_date=claim_date
+                )
+                verification_result["claim_text"] = claim
+                verification_result["claim_index"] = i
+                claim_results.append(verification_result)
+            except Exception as e:
+                print(f"❌ Error verifying claim {i}: {e}")
+                claim_results.append({
+                    "claim_text": claim,
+                    "claim_index": i,
+                    "verified": False,
+                    "verdict": "error",
+                    "message": f"Error during verification: {str(e)}"
+                })
+        
+        # Step 4: Combine results
+        print(f"📊 Combining {len(claim_results)} claim verification results...")
+        
+        # Aggregate verdicts
+        verdicts = [r.get("verdict", "uncertain") for r in claim_results]
+        true_count = verdicts.count("true")
+        false_count = verdicts.count("false")
+        uncertain_count = verdicts.count("uncertain")
+        mixed_count = verdicts.count("mixed")
+        error_count = verdicts.count("error")
+        
+        # Determine overall verdict
+        if false_count > 0:
+            overall_verdict = "false"
+            verified = False
+        elif true_count > 0 and false_count == 0:
+            overall_verdict = "true"
+            verified = True
+        elif mixed_count > 0:
+            overall_verdict = "mixed"
+            verified = False
+        elif uncertain_count > 0:
+            overall_verdict = "uncertain"
+            verified = False
+        else:
+            overall_verdict = "error"
+            verified = False
+        
+        # Step 5: Generate comprehensive summary using Gemini
+        print(f"📝 Generating comprehensive summary with Gemini...")
+        combined_message = await _generate_claims_summary(claim_results, gemini_model)
+        
+        return {
+            "verified": verified,
+            "verdict": overall_verdict,
+            "message": combined_message,
+            "details": {
+                "video_url": url,
+                "captions_length": len(captions),
+                "total_claims": len(claims),
+                "claims_verified": true_count,
+                "claims_false": false_count,
+                "claims_mixed": mixed_count,
+                "claims_uncertain": uncertain_count,
+                "claims_error": error_count,
+                "claim_results": claim_results
+            },
+            "source": "youtube_url"
+        }
+        
+    except Exception as e:
+        print(f"❌ Error verifying YouTube video: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return {
+            "verified": False,
+            "verdict": "error",
+            "message": f"Error processing YouTube video: {str(e)}",
+            "details": {
+                "video_url": url,
+                "error": str(e)
+            },
+            "source": "youtube_url"
+        }
+
+
 @app.post("/chatbot/verify")
 async def chatbot_verify(
     text_input: Optional[str] = Form(None),
@@ -617,6 +917,20 @@ Do NOT mention file names or file paths in your response.
         print(f"🔍 DEBUG: Processing {len(urls_list)} URLs")
         for i, url in enumerate(urls_list):
             print(f"🔍 DEBUG: Processing URL {i}: {url}")
+            
+            # STEP 0: Check if this is a YouTube URL - handle specially
+            if _is_youtube_url(url):
+                print(f"🎥 DEBUG: Detected YouTube URL, using caption-based verification: {url}")
+                try:
+                    result = await _verify_youtube_video(url, claim_context, claim_date)
+                    results.append(result)
+                    print(f"🔍 DEBUG: YouTube verification result: {result}")
+                    continue  # Skip the rest of the URL processing
+                except Exception as e:
+                    print(f"❌ DEBUG: YouTube verification failed: {e}")
+                    import traceback
+                    print(traceback.format_exc())
+                    # Fall through to regular video processing as fallback
             
             # STEP 1: For social media URLs, use yt-dlp to fetch the actual media first
             # This determines the REAL media type, not just what the LLM guessed
