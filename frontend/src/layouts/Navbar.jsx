@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 // eslint-disable-next-line no-unused-vars
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, X, AlertTriangle, LogOut, User } from "lucide-react";
+import { Menu, X, AlertTriangle, LogOut, UserCircle } from "lucide-react";
 import logo from "../assets/logo.png";
 import RumoursSidebar from "../components/RumoursSidebar";
 import RumourModal from "../components/RumourModal";
@@ -116,9 +116,8 @@ const Navbar = () => {
                     }`}
                     title={`Profile - ${user?.subscription_tier || "Free"} Tier`}
                   >
-                    <User className="w-5 h-5" />
+                    <UserCircle className="w-5 h-5" />
                   </button>
-                  <span className="text-sm text-gray-300">{user?.email}</span>
                   <button
                     onClick={handleLogout}
                     className="px-4 py-2 bg-gray-700 text-white rounded-lg text-sm font-medium hover:bg-gray-600 transition-colors flex items-center gap-2"
@@ -182,7 +181,7 @@ const Navbar = () => {
                       onClick={() => setMobileMenuOpen(false)}
                       className="block px-4 py-2 rounded-lg text-sm font-medium text-gray-300 hover:bg-gray-700 flex items-center gap-2"
                     >
-                      <User className="w-4 h-4" />
+                      <UserCircle className="w-4 h-4" />
                       Profile
                     </Link>
                     <button

@@ -15,12 +15,17 @@ import "./App.css";
 
 function App() {
   const location = useLocation();
-  const footerHiddenRoutes = new Set(["/verify"]);
+  const footerHiddenRoutes = new Set(["/verify", "/login", "/signup"]);
 
   useEffect(() => {
     document.documentElement.classList.add("dark");
     document.documentElement.style.colorScheme = "dark";
   }, []);
+
+  // Scroll to top on route change
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+  }, [location.pathname]);
 
   return (
     <AuthProvider>
