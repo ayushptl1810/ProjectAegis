@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 // eslint-disable-next-line no-unused-vars
 import { motion } from "framer-motion";
-import { Search, ArrowLeft, ListChecks } from "lucide-react";
+import { Search, ArrowLeft, ListChecks, AlertTriangle, CheckCircle, ExternalLink, TrendingUp, Tag, Lightbulb, Shield } from "lucide-react";
 import ModuleCard from "../../components/ModuleCard";
 import ContentSection from "../../components/ContentSection";
 import PracticalTips from "../../components/PracticalTips";
@@ -36,19 +36,12 @@ const Modules = () => {
     loadModules();
   }, []);
 
-  useEffect(() => {
-    if (id && activeModuleMeta?.difficulty_levels?.length) {
-      if (!activeModuleMeta.difficulty_levels.includes(detailDifficulty)) {
-        setDetailDifficulty(activeModuleMeta.difficulty_levels[0]);
-      }
-    }
-  }, [id, activeModuleMeta, detailDifficulty]);
 
   useEffect(() => {
     if (id) {
-      loadModuleContent(id, detailDifficulty);
+      loadModuleContent(id);
     }
-  }, [id, detailDifficulty]);
+  }, [id]);
 
   useEffect(() => {
     if (!id) {
@@ -98,13 +91,13 @@ const Modules = () => {
     }
   };
 
-  const loadModuleContent = async (moduleId, difficultyLevel) => {
+  const loadModuleContent = async (moduleId) => {
     if (!moduleId) return;
     try {
       setDetailLoading(true);
       setDetailError("");
       const response = await fetch(
-        `${getApiBaseUrl()}/educational/modules/${moduleId}?difficulty_level=${difficultyLevel}`
+        `${getApiBaseUrl()}/educational/modules/${moduleId}`
       );
       if (!response.ok) {
         throw new Error("Failed to load module content");
@@ -173,20 +166,14 @@ const Modules = () => {
   });
 
   if (id) {
-    const difficultyOptions = activeModuleMeta?.difficulty_levels?.length
-      ? activeModuleMeta.difficulty_levels
-      : ["beginner", "intermediate", "advanced"];
     const estimatedTime =
       moduleContent?.estimated_time ||
       activeModuleMeta?.estimated_time ||
-      "10-15 mins";
+      "15-20 minutes";
     const learningObjectives = moduleContent?.learning_objectives || [];
-    const examples = moduleContent?.examples || [];
-    const interactive = moduleContent?.interactive_elements || {};
-    const hasInteractiveContent =
-      (interactive.quiz_questions?.length || 0) > 0 ||
-      (interactive.true_false?.length || 0) > 0 ||
-      (interactive.scenarios?.length || 0) > 0;
+    const trendingScore = moduleContent?.trending_score || 0;
+    const redFlagsCount = moduleContent?.red_flags?.length || 0;
+    const verificationTipsCount = moduleContent?.verification_tips?.length || 0;
 
     return (
       <div className="min-h-screen bg-black py-10">
@@ -217,35 +204,9 @@ const Modules = () => {
                       "Learn actionable strategies to identify misinformation."}
                   </p>
                 </div>
-
-                {difficultyOptions.length > 1 && (
-                  <div className="w-full max-w-md">
-                    <p className="text-xs uppercase tracking-[0.3em] text-gray-400">
-                      Difficulty presets
-                    </p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {difficultyOptions.map((level) => {
-                        const isActive = level === detailDifficulty;
-                        return (
-                          <button
-                            key={level}
-                            onClick={() => handleDifficultyChange(level)}
-                            className={`rounded-full px-4 py-1.5 text-xs font-semibold uppercase tracking-wide transition ${
-                              isActive
-                                ? "bg-white text-black"
-                                : "bg-white/5 text-gray-300 hover:text-white/80"
-                            }`}
-                          >
-                            {level}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
               </div>
 
-              <div className="grid gap-4 md:grid-cols-3">
+              <div className="grid gap-4 md:grid-cols-4">
                 {[
                   {
                     label: "Estimated time",
@@ -253,18 +214,21 @@ const Modules = () => {
                     hint: "Average completion window",
                   },
                   {
-                    label: "Current preset",
-                    value:
-                      detailDifficulty.charAt(0).toUpperCase() +
-                      detailDifficulty.slice(1),
-                    hint: "Content is tailored to this level",
+                    label: "Trending Score",
+                    value: trendingScore > 0 ? `${trendingScore}/10` : "N/A",
+                    hint: "Current popularity",
                   },
                   {
-                    label: "Objectives covered",
-                    value: `${learningObjectives.length || 0} goals`,
-                    hint: "Based on this preset",
+                    label: "Red Flags",
+                    value: `${redFlagsCount} warnings`,
+                    hint: "Key indicators to watch",
                   },
-                ].map((card) => (
+                  {
+                    label: "Verification Tips",
+                    value: `${verificationTipsCount} strategies`,
+                    hint: "Ways to verify information",
+                  },
+                ].filter(card => card.value !== "N/A").map((card) => (
                   <div
                     key={card.label}
                     className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-left"
@@ -308,7 +272,7 @@ const Modules = () => {
               </p>
               <p className="text-sm opacity-80 mt-2">{detailError}</p>
               <button
-                onClick={() => loadModuleContent(id, detailDifficulty)}
+                onClick={() => loadModuleContent(id)}
                 className="mt-4 inline-flex items-center gap-2 rounded-lg border border-red-500/40 px-4 py-2 text-sm hover:bg-red-500/20"
               >
                 Try again
@@ -316,153 +280,185 @@ const Modules = () => {
             </div>
           ) : moduleContent ? (
             <>
-              <div className="grid gap-6 lg:grid-cols-3">
-                <div className="lg:col-span-2 space-y-4">
-                  {(moduleContent.content_sections || []).map(
-                    (section, index) => (
-                      <ContentSection
-                        key={`${section.title}-${index}`}
-                        section={section}
-                        index={index}
-                        isExpanded={!!expandedSections[`section-${index}`]}
-                        onToggle={() => toggleSection(`section-${index}`)}
-                        isDarkMode
-                      />
-                    )
+              {/* Technique Explanation Section */}
+              {moduleContent.technique_explanation && (
+                <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-blue-500/10 to-cyan-500/10 backdrop-blur-xl p-6 sm:p-8">
+                  <div className="flex items-start gap-4 mb-4">
+                    <div className="p-3 rounded-xl bg-blue-500/20">
+                      <Shield className="w-6 h-6 text-blue-400" />
+                    </div>
+                    <div className="flex-1">
+                      <h2 className="text-xl font-bold text-white mb-2">
+                        {moduleContent.misinformation_type || moduleContent.title}
+                      </h2>
+                      <p className="text-gray-300 leading-relaxed">
+                        {moduleContent.technique_explanation}
+                      </p>
+                    </div>
+                  </div>
+                  {moduleContent.trending_score > 0 && (
+                    <div className="flex items-center gap-2 mt-4 text-sm">
+                      <TrendingUp className="w-4 h-4 text-yellow-400" />
+                      <span className="text-yellow-400 font-medium">Trending Score: {moduleContent.trending_score}/10</span>
+                    </div>
                   )}
                 </div>
-                <div className="space-y-6">
-                  <PracticalTips
-                    tips={moduleContent.practical_tips}
-                    isDarkMode
-                  />
-                  {Array.isArray(moduleContent.common_mistakes) &&
-                    moduleContent.common_mistakes.length > 0 && (
-                      <div className="rounded-3xl border border-rose-500/20 bg-gradient-to-br from-[#2b1117] via-[#1c0c10] to-[#18090a] p-5">
-                        <p className="text-rose-100 font-semibold mb-3">
-                          Common mistakes
-                        </p>
-                        <ul className="space-y-2 text-sm text-rose-200">
-                          {moduleContent.common_mistakes.map(
-                            (mistake, index) => (
-                              <li key={index} className="flex gap-2">
-                                <span className="text-rose-400">•</span>
-                                <span>{mistake}</span>
-                              </li>
-                            )
-                          )}
-                        </ul>
+              )}
+
+              <div className="grid gap-6 lg:grid-cols-3">
+                {/* Main Content - Left Side */}
+                <div className="lg:col-span-2 space-y-6">
+                  {/* Red Flags */}
+                  {moduleContent.red_flags && moduleContent.red_flags.length > 0 && (
+                    <div className="rounded-2xl border border-red-500/20 bg-gradient-to-br from-red-500/10 to-rose-500/10 backdrop-blur-xl p-6">
+                      <div className="flex items-center gap-3 mb-4">
+                        <AlertTriangle className="w-5 h-5 text-red-400" />
+                        <h3 className="text-lg font-bold text-white">Red Flags to Watch For</h3>
                       </div>
-                    )}
-                  {examples.length > 0 && (
-                    <div className="rounded-xl border border-white/10 bg-white/5 p-5 space-y-4">
-                      <p className="text-white font-semibold">
-                        Real-world examples
-                      </p>
-                      {examples.slice(0, 3).map((example, index) => (
-                        <div
-                          key={index}
-                          className="rounded-lg bg-black/40 p-4 space-y-2 text-sm text-gray-300"
-                        >
-                          <p className="text-white font-semibold">
-                            {example.title || `Example ${index + 1}`}
-                          </p>
-                          <p>{example.scenario}</p>
-                          {example.red_flags?.length ? (
-                            <p className="text-xs text-gray-400">
-                              Red flags: {example.red_flags.join(", ")}
+                      <ul className="space-y-3">
+                        {moduleContent.red_flags.map((flag, index) => (
+                          <li key={index} className="flex gap-3 text-gray-300">
+                            <span className="text-red-400 mt-1">•</span>
+                            <span>{flag}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Verification Tips */}
+                  {moduleContent.verification_tips && moduleContent.verification_tips.length > 0 && (
+                    <div className="rounded-2xl border border-green-500/20 bg-gradient-to-br from-green-500/10 to-emerald-500/10 backdrop-blur-xl p-6">
+                      <div className="flex items-center gap-3 mb-4">
+                        <CheckCircle className="w-5 h-5 text-green-400" />
+                        <h3 className="text-lg font-bold text-white">Verification Tips</h3>
+                      </div>
+                      <ol className="space-y-3">
+                        {moduleContent.verification_tips.map((tip, index) => (
+                          <li key={index} className="flex gap-3 text-gray-300">
+                            <span className="text-green-400 font-bold min-w-[24px]">{index + 1}.</span>
+                            <span>{tip}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
+
+                  {/* Real-World Example */}
+                  {moduleContent.example && moduleContent.example.heading && (
+                    <div className="rounded-2xl border border-white/10 bg-black/40 backdrop-blur-xl p-6">
+                      <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                        <Lightbulb className="w-5 h-5 text-yellow-400" />
+                        Real-World Example
+                      </h3>
+                      <div className="space-y-4">
+                        {moduleContent.example.image_url && (
+                          <img 
+                            src={moduleContent.example.image_url} 
+                            alt={moduleContent.example.heading}
+                            className="rounded-xl w-full max-h-64 object-cover"
+                            onError={(e) => { e.target.style.display = 'none'; }}
+                          />
+                        )}
+                        <div>
+                          <h4 className="text-white font-semibold mb-2">
+                            {moduleContent.example.heading}
+                          </h4>
+                          {moduleContent.example.claim && (
+                            <div className="mb-3 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
+                              <p className="text-sm text-red-200 font-medium mb-1">The Claim:</p>
+                              <p className="text-sm text-gray-300">{moduleContent.example.claim}</p>
+                            </div>
+                          )}
+                          {moduleContent.example.verdict && (
+                            <div className="mb-3 p-3 rounded-lg bg-green-500/10 border border-green-500/30">
+                              <p className="text-sm text-green-200 font-medium mb-1">The Verdict:</p>
+                              <p className="text-sm text-gray-300">{moduleContent.example.verdict}</p>
+                            </div>
+                          )}
+                          {moduleContent.example.body && (
+                            <p className="text-gray-400 text-sm leading-relaxed mb-4">
+                              {moduleContent.example.body}
                             </p>
-                          ) : null}
+                          )}
+                          {moduleContent.example.tags && moduleContent.example.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mb-4">
+                              {moduleContent.example.tags.map((tag, idx) => (
+                                <span key={idx} className="px-3 py-1 rounded-full text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {moduleContent.example.source_url && (
+                            <a
+                              href={moduleContent.example.source_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300 transition"
+                            >
+                              Read full article <ExternalLink className="w-4 h-4" />
+                            </a>
+                          )}
                         </div>
-                      ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Sidebar - Right Side */}
+                <div className="space-y-6">
+                  {/* User Action Items */}
+                  {moduleContent.user_action_items && moduleContent.user_action_items.length > 0 && (
+                    <div className="rounded-2xl border border-purple-500/20 bg-gradient-to-br from-purple-500/10 to-indigo-500/10 backdrop-blur-xl p-6">
+                      <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                        <Lightbulb className="w-5 h-5 text-purple-400" />
+                        What You Can Do
+                      </h3>
+                      <ul className="space-y-2">
+                        {moduleContent.user_action_items.map((action, index) => (
+                          <li key={index} className="flex gap-2 text-sm text-gray-300">
+                            <span className="text-purple-400 mt-1">→</span>
+                            <span>{action}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Related Patterns */}
+                  {moduleContent.related_patterns && moduleContent.related_patterns.length > 0 && (
+                    <div className="rounded-2xl border border-cyan-500/20 bg-gradient-to-br from-cyan-500/10 to-blue-500/10 backdrop-blur-xl p-6">
+                      <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                        <Tag className="w-5 h-5 text-cyan-400" />
+                        Related Patterns
+                      </h3>
+                      <div className="flex flex-wrap gap-2">
+                        {moduleContent.related_patterns.map((pattern, index) => (
+                          <span key={index} className="px-3 py-1.5 rounded-lg text-sm bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                            {pattern}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Sources of Technique */}
+                  {moduleContent.sources_of_technique && moduleContent.sources_of_technique.length > 0 && (
+                    <div className="rounded-2xl border border-white/10 bg-black/40 backdrop-blur-xl p-6">
+                      <h3 className="text-lg font-bold text-white mb-4">Common Sources</h3>
+                      <ul className="space-y-2">
+                        {moduleContent.sources_of_technique.map((source, index) => (
+                          <li key={index} className="text-sm text-gray-400 flex gap-2">
+                            <span className="text-gray-500">•</span>
+                            <span>{source}</span>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   )}
                 </div>
               </div>
-
-              {hasInteractiveContent && (
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-6 space-y-6">
-                  <p className="text-white text-lg font-semibold">
-                    Interactive drills
-                  </p>
-                  {renderInteractiveSection(
-                    "Quiz questions",
-                    interactive.quiz_questions,
-                    (question, index) => (
-                      <div
-                        key={`quiz-${index}`}
-                        className="rounded-xl border border-white/10 bg-black/40 p-4 space-y-2 text-sm text-gray-300"
-                      >
-                        <p className="text-white font-semibold">
-                          {question.question}
-                        </p>
-                        <ul className="space-y-1 text-xs">
-                          {(question.options || []).map(
-                            (option, optionIndex) => (
-                              <li
-                                key={optionIndex}
-                                className={`flex gap-2 ${
-                                  optionIndex === question.correct_answer
-                                    ? "text-green-400"
-                                    : ""
-                                }`}
-                              >
-                                <span>
-                                  {String.fromCharCode(65 + optionIndex)}.
-                                </span>
-                                <span>{option}</span>
-                              </li>
-                            )
-                          )}
-                        </ul>
-                      </div>
-                    )
-                  )}
-                  {renderInteractiveSection(
-                    "True / False",
-                    interactive.true_false,
-                    (statement, index) => (
-                      <div
-                        key={`tf-${index}`}
-                        className="rounded-xl border border-white/10 bg-black/40 p-4 space-y-2 text-sm text-gray-300"
-                      >
-                        <p className="text-white font-semibold">
-                          {statement.statement}
-                        </p>
-                        <p className="text-xs text-gray-400">
-                          Answer: {statement.answer ? "True" : "False"}
-                        </p>
-                        <p className="text-xs text-gray-500">
-                          {statement.explanation}
-                        </p>
-                      </div>
-                    )
-                  )}
-                  {renderInteractiveSection(
-                    "Scenario responses",
-                    interactive.scenarios,
-                    (scenario, index) => (
-                      <div
-                        key={`scenario-${index}`}
-                        className="rounded-xl border border-white/10 bg-black/40 p-4 space-y-2 text-sm text-gray-300"
-                      >
-                        <p className="text-white font-semibold">
-                          {scenario.scenario}
-                        </p>
-                        <p className="text-xs text-gray-400">
-                          Question: {scenario.question}
-                        </p>
-                        <p className="text-xs text-green-400">
-                          Recommended action: {scenario.correct_action}
-                        </p>
-                        <p className="text-xs text-gray-500">
-                          {scenario.explanation}
-                        </p>
-                      </div>
-                    )
-                  )}
-                </div>
-              )}
             </>
           ) : (
             <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-gray-400">

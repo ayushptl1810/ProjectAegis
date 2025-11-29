@@ -53,6 +53,7 @@ class MongoDBService:
             self.chat_messages = self.db["chat_messages"]
             self.subscriptions = self.db["subscriptions"]
             self.users = self.db["users"]
+            self.weekly_posts = self.db["weekly_posts"]
             
             logger.info("✅ Successfully connected to MongoDB")
             
@@ -676,6 +677,179 @@ class MongoDBService:
         except Exception as e:
             logger.error(f"Error updating user subscription tier: {e}")
             return False
+    
+    # ---------- Educational Modules from weekly_posts ----------
+    
+    def get_educational_modules_list(self) -> List[Dict[str, Any]]:
+        """
+        Get list of all educational modules from weekly_posts collection
+        Only returns posts that have educational_module field
+        
+        Returns:
+            List of educational module summaries with unique misinformation types
+        """
+        try:
+            if self.weekly_posts is None:
+                logger.warning("⚠️ weekly_posts collection not initialized")
+                return []
+            
+            # Find all posts with educational_module field
+            posts_with_modules = list(
+                self.weekly_posts.find(
+                    {
+                        "educational_module": {"$exists": True, "$ne": None}
+                    },
+                    {
+                        "educational_module.misinformation_type": 1,
+                        "educational_module.trending_score": 1,
+                        "post_content.heading": 1,
+                        "metadata.tags": 1,
+                        "stored_at": 1,
+                        "_id": 1
+                    }
+                )
+                .sort("stored_at", -1)
+            )
+            
+            # Group by misinformation_type and get the most recent one for each type
+            type_map = {}
+            for post in posts_with_modules:
+                edu_module = post.get("educational_module", {})
+                misinfo_type = edu_module.get("misinformation_type")
+                
+                if misinfo_type and misinfo_type not in type_map:
+                    # Get trending score
+                    trending_score = edu_module.get("trending_score", {}).get("$numberInt") if isinstance(edu_module.get("trending_score"), dict) else edu_module.get("trending_score", 0)
+                    if isinstance(trending_score, str):
+                        trending_score = int(trending_score)
+                    
+                    type_map[misinfo_type] = {
+                        "id": misinfo_type.lower().replace(" ", "_").replace("-", "_"),
+                        "title": misinfo_type,
+                        "description": edu_module.get("technique_explanation", "")[:150] + "..." if edu_module.get("technique_explanation") else "Learn about this misinformation technique",
+                        "trending_score": trending_score,
+                        "tags": post.get("metadata", {}).get("tags", []),
+                        "example_heading": post.get("post_content", {}).get("heading", "")[:100] if post.get("post_content", {}).get("heading") else "",
+                        "post_id": str(post.get("_id", "")),
+                        "related_patterns": edu_module.get("related_patterns", []),
+                        "estimated_time": "15-20 minutes"
+                    }
+            
+            # Convert to list and sort by trending score (descending)
+            modules_list = list(type_map.values())
+            modules_list.sort(key=lambda x: x.get("trending_score", 0), reverse=True)
+            
+            logger.info(f"✅ Retrieved {len(modules_list)} unique educational modules from weekly_posts")
+            return modules_list
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to get educational modules list: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return []
+    
+    def get_educational_module_by_id(self, module_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a specific educational module by ID (misinformation_type)
+        
+        Args:
+            module_id: The module ID (misinformation_type converted to ID format)
+            
+        Returns:
+            Educational module document or None
+        """
+        try:
+            if self.weekly_posts is None:
+                logger.warning("⚠️ weekly_posts collection not initialized")
+                return None
+            
+            # Get all posts with educational modules first
+            all_posts = list(self.weekly_posts.find({
+                "educational_module": {"$exists": True, "$ne": None}
+            }))
+            
+            # Find matching post by converting module_id to various formats
+            post = None
+            for candidate_post in all_posts:
+                edu_module = candidate_post.get("educational_module", {})
+                misinfo_type = edu_module.get("misinformation_type", "")
+                
+                # Clean both for comparison - normalize spaces, dashes, special chars
+                misinfo_id = misinfo_type.lower().replace(" ", "_").replace("-", "_").replace("'", "").replace('"', "").replace(",", "").replace(".", "").strip()
+                module_id_clean = module_id.lower().replace(" ", "_").replace("-", "_").replace("'", "").replace('"', "").replace(",", "").replace(".", "").strip()
+                
+                if misinfo_id == module_id_clean:
+                    post = candidate_post
+                    break
+            
+            # If not found, try to find by partial match
+            if not post:
+                for candidate_post in all_posts:
+                    edu_module = candidate_post.get("educational_module", {})
+                    misinfo_type = edu_module.get("misinformation_type", "")
+                    if module_id.lower() in misinfo_type.lower() or misinfo_type.lower() in module_id.lower():
+                        post = candidate_post
+                        break
+            
+            if not post:
+                logger.warning(f"⚠️ No educational module found for ID: {module_id}")
+                return None
+            
+            # Extract and format the educational module data
+            edu_module = post.get("educational_module", {})
+            
+            # Handle MongoDB extended JSON format (numbers as objects)
+            def clean_value(val):
+                if isinstance(val, dict) and "$numberInt" in val:
+                    return int(val["$numberInt"])
+                if isinstance(val, dict) and "$numberLong" in val:
+                    return int(val["$numberLong"])
+                if isinstance(val, list):
+                    return [clean_value(v) for v in val]
+                if isinstance(val, dict):
+                    return {k: clean_value(v) for k, v in val.items()}
+                return val
+            
+            edu_module_cleaned = clean_value(edu_module)
+            
+            # Build response with post context
+            result = {
+                "id": module_id,
+                "title": edu_module_cleaned.get("misinformation_type", "Educational Module"),
+                "overview": edu_module_cleaned.get("technique_explanation", ""),
+                "misinformation_type": edu_module_cleaned.get("misinformation_type"),
+                "technique_explanation": edu_module_cleaned.get("technique_explanation", ""),
+                "red_flags": edu_module_cleaned.get("red_flags", []),
+                "verification_tips": edu_module_cleaned.get("verification_tips", []),
+                "trending_score": edu_module_cleaned.get("trending_score", 0),
+                "related_patterns": edu_module_cleaned.get("related_patterns", []),
+                "user_action_items": edu_module_cleaned.get("user_action_items", []),
+                "sources_of_technique": edu_module_cleaned.get("sources_of_technique", []),
+                "example": {
+                    "heading": post.get("post_content", {}).get("heading", ""),
+                    "body": post.get("post_content", {}).get("body", "")[:500] if post.get("post_content", {}).get("body") else "",
+                    "claim": post.get("claim", {}).get("text", "") if isinstance(post.get("claim"), dict) else "",
+                    "verdict": post.get("claim", {}).get("verdict_statement", "") if isinstance(post.get("claim"), dict) else "",
+                    "tags": post.get("metadata", {}).get("tags", []),
+                    "image_url": post.get("metadata", {}).get("image_url"),
+                    "source_url": post.get("post_content", {}).get("full_article_url")
+                },
+                "estimated_time": "15-20 minutes",
+                "learning_objectives": [
+                    f"Understand how {edu_module_cleaned.get('misinformation_type', 'misinformation')} works",
+                    "Identify red flags associated with this technique",
+                    "Learn verification strategies to detect this type of misinformation"
+                ]
+            }
+            
+            logger.info(f"✅ Retrieved educational module: {module_id}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to get educational module by ID: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return None
     
     def close(self):
         """Close MongoDB connection"""

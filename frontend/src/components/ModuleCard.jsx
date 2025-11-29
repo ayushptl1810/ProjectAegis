@@ -47,20 +47,28 @@ const ModuleCard = ({ module, isDarkMode, isCompleted, onClick }) => {
       <p className="mt-3 text-sm text-gray-400">{module.description}</p>
 
       <div className="mt-5 flex flex-wrap items-center gap-3 text-sm text-gray-400">
-        <div className="flex items-center gap-2">
-          <Clock className="h-4 w-4 text-blue-300" />
-          <span>{module.estimated_time}</span>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {module.difficulty_levels.map((level) => (
-            <span
-              key={level}
-              className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${badgeThemes[level]}`}
-            >
-              {level}
-            </span>
-          ))}
-        </div>
+        {module.estimated_time && (
+          <div className="flex items-center gap-2">
+            <Clock className="h-4 w-4 text-blue-300" />
+            <span>{module.estimated_time}</span>
+          </div>
+        )}
+        {module.difficulty_levels &&
+          Array.isArray(module.difficulty_levels) &&
+          module.difficulty_levels.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {module.difficulty_levels.map((level) => (
+                <span
+                  key={level}
+                  className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
+                    badgeThemes[level] || badgeThemes.beginner
+                  }`}
+                >
+                  {level}
+                </span>
+              ))}
+            </div>
+          )}
       </div>
     </MotionCard>
   );

@@ -1298,28 +1298,44 @@ async def speech_to_text(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Educational Content API Endpoints
+# Educational Content API Endpoints - Now fetching from MongoDB weekly_posts
 @app.get("/educational/modules")
 async def get_educational_modules():
-    """Get list of available educational modules"""
+    """Get list of available educational modules from MongoDB weekly_posts"""
     try:
-        modules_data = await educational_generator.get_modules_list()
-        return modules_data
+        if not mongodb_service:
+            raise HTTPException(status_code=503, detail="MongoDB service not available")
+        
+        modules_list = mongodb_service.get_educational_modules_list()
+        return {
+            "modules": modules_list,
+            "total": len(modules_list)
+        }
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Failed to get educational modules: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/educational/modules/{module_id}")
 async def get_module_content(
     module_id: str,
-    difficulty_level: str = "beginner"
+    difficulty_level: str = "beginner"  # Kept for backward compatibility but not used
 ):
-    """Get educational content for a specific module"""
+    """Get educational content for a specific module from MongoDB weekly_posts"""
     try:
-        content = await educational_generator.generate_module_content(
-            module_id, difficulty_level
-        )
+        if not mongodb_service:
+            raise HTTPException(status_code=503, detail="MongoDB service not available")
+        
+        content = mongodb_service.get_educational_module_by_id(module_id)
+        if not content:
+            raise HTTPException(status_code=404, detail=f"Module '{module_id}' not found")
+        
         return content
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Failed to get module content: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/educational/contextual-learning")
