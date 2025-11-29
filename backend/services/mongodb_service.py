@@ -52,6 +52,7 @@ class MongoDBService:
             self.chat_sessions = self.db["chat_sessions"]
             self.chat_messages = self.db["chat_messages"]
             self.subscriptions = self.db["subscriptions"]
+            self.users = self.db["users"]
             
             logger.info("✅ Successfully connected to MongoDB")
             
@@ -433,8 +434,25 @@ class MongoDBService:
             return_document=True
         )
         
-        result["_id"] = str(result["_id"])
-        logger.info(f"✅ Upserted subscription: {razorpay_subscription_id}")
+        if result:
+            result["_id"] = str(result["_id"])
+            logger.info(f"✅ Upserted subscription: {razorpay_subscription_id}")
+            
+            # Update user's subscription tier if user_id is present
+            user_id = subscription_data.get("user_id")
+            status = subscription_data.get("status")
+            plan_name = subscription_data.get("plan_name", "Free")
+            
+            if user_id:
+                if status == "active":
+                    success = self.update_user_subscription_tier(user_id, plan_name)
+                    if success:
+                        logger.info(f"✅ Updated user {user_id} subscription tier to {plan_name} via upsert_subscription")
+                elif status in ["cancelled", "expired", "paused", "ended"]:
+                    success = self.update_user_subscription_tier(user_id, "Free")
+                    if success:
+                        logger.info(f"✅ Updated user {user_id} subscription tier to Free (status: {status})")
+        
         return result
     
     def get_user_subscription(
@@ -508,6 +526,15 @@ class MongoDBService:
         if result:
             result["_id"] = str(result["_id"])
             logger.info(f"✅ Updated subscription status: {razorpay_subscription_id} -> {status}")
+            
+            # Update user's subscription tier
+            user_id = result.get("user_id")
+            if user_id:
+                plan_name = result.get("plan_name", "Free")
+                if status == "active":
+                    self.update_user_subscription_tier(user_id, plan_name)
+                elif status in ["cancelled", "expired", "paused"]:
+                    self.update_user_subscription_tier(user_id, "Free")
         
         return result
     
@@ -535,6 +562,120 @@ class MongoDBService:
             subscription["_id"] = str(subscription["_id"])
         
         return subscription
+    
+    def create_user(self, user_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create a new user in MongoDB
+        
+        Args:
+            user_data: User data including email, password (hashed), domain_preferences, etc.
+            
+        Returns:
+            Created user document
+        """
+        if self.users is None:
+            raise RuntimeError("users collection not initialised")
+        
+        from datetime import datetime
+        from bson import ObjectId
+        
+        # Check if user already exists
+        existing = self.users.find_one({"email": user_data["email"]})
+        if existing:
+            raise ValueError("Email already registered")
+        
+        user_doc = {
+            **user_data,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+        }
+        
+        result = self.users.insert_one(user_doc)
+        user_doc["_id"] = str(result.inserted_id)
+        user_doc["id"] = str(result.inserted_id)
+        
+        logger.info(f"✅ Created user: {user_data['email']}")
+        return user_doc
+    
+    def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """
+        Get user by email
+        
+        Args:
+            email: User email
+            
+        Returns:
+            User document or None
+        """
+        if self.users is None:
+            return None
+        
+        user = self.users.find_one({"email": email})
+        if user:
+            user["_id"] = str(user["_id"])
+            user["id"] = str(user["_id"])
+        
+        return user
+    
+    def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get user by ID
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            User document or None
+        """
+        if self.users is None:
+            return None
+        
+        from bson import ObjectId
+        
+        try:
+            user = self.users.find_one({"_id": ObjectId(user_id)})
+            if user:
+                user["_id"] = str(user["_id"])
+                user["id"] = str(user["_id"])
+            return user
+        except Exception as e:
+            logger.error(f"Error getting user by ID: {e}")
+            return None
+    
+    def update_user_subscription_tier(self, user_id: str, subscription_tier: str) -> bool:
+        """
+        Update user's subscription tier in user collection
+        
+        Args:
+            user_id: User ID
+            subscription_tier: Subscription tier (Free, Pro, Enterprise)
+            
+        Returns:
+            True if updated successfully, False otherwise
+        """
+        if self.users is None:
+            return False
+        
+        from datetime import datetime
+        from bson import ObjectId
+        
+        try:
+            result = self.users.update_one(
+                {"_id": ObjectId(user_id)},
+                {
+                    "$set": {
+                        "subscription_tier": subscription_tier,
+                        "updated_at": datetime.utcnow()
+                    }
+                }
+            )
+            if result.modified_count > 0:
+                logger.info(f"✅ Updated user {user_id} subscription tier to {subscription_tier}")
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Error updating user subscription tier: {e}")
+            return False
     
     def close(self):
         """Close MongoDB connection"""

@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 // eslint-disable-next-line no-unused-vars
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, X, AlertTriangle } from "lucide-react";
+import { Menu, X, AlertTriangle, LogOut, User } from "lucide-react";
 import logo from "../assets/logo.png";
 import RumoursSidebar from "../components/RumoursSidebar";
 import RumourModal from "../components/RumourModal";
 import { useRumoursFeed } from "../hooks/useRumoursFeed";
+import { useAuth } from "../contexts/AuthContext";
 
 const Navbar = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -14,7 +15,9 @@ const Navbar = () => {
   const [selectedRumour, setSelectedRumour] = useState(null);
   const [isRumourModalOpen, setIsRumourModalOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
   const { rumours } = useRumoursFeed();
+  const { isAuthenticated, user, logout } = useAuth();
 
   useEffect(() => {
     if (rumoursSidebarOpen) {
@@ -32,8 +35,13 @@ const Navbar = () => {
     { path: "/", label: "Home" },
     { path: "/verify", label: "Verify" },
     { path: "/modules", label: "Modules" },
-    { path: "/subscription", label: "Subscription" },
+    ...(isAuthenticated ? [{ path: "/subscription", label: "Subscription" }] : []),
   ];
+
+  const handleLogout = () => {
+    logout();
+    navigate("/");
+  };
 
   const handleRumourClick = (rumour) => {
     setSelectedRumour(rumour);
@@ -94,13 +102,39 @@ const Navbar = () => {
                 {/* sidebar handled outside nav */}
               </div>
 
-              {/* Login Button */}
-              <Link
-                to="/login"
-                className="ml-4 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
-              >
-                Login
-              </Link>
+              {/* Login/Logout Button */}
+              {isAuthenticated ? (
+                <div className="ml-4 flex items-center gap-3">
+                  <button
+                    onClick={() => navigate("/profile")}
+                    className={`p-2 rounded-lg transition-all duration-200 ${
+                      user?.subscription_tier === "Pro"
+                        ? "text-cyan-400 hover:bg-cyan-500/20 hover:scale-110"
+                        : user?.subscription_tier === "Enterprise"
+                        ? "text-purple-400 hover:bg-purple-500/20 hover:scale-110"
+                        : "text-gray-400 hover:bg-gray-700 hover:scale-110"
+                    }`}
+                    title={`Profile - ${user?.subscription_tier || "Free"} Tier`}
+                  >
+                    <User className="w-5 h-5" />
+                  </button>
+                  <span className="text-sm text-gray-300">{user?.email}</span>
+                  <button
+                    onClick={handleLogout}
+                    className="px-4 py-2 bg-gray-700 text-white rounded-lg text-sm font-medium hover:bg-gray-600 transition-colors flex items-center gap-2"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Logout
+                  </button>
+                </div>
+              ) : (
+                <Link
+                  to="/login"
+                  className="ml-4 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+                >
+                  Login
+                </Link>
+              )}
             </div>
 
             {/* Mobile menu button */}
@@ -141,13 +175,36 @@ const Navbar = () => {
                     {item.label}
                   </Link>
                 ))}
-                <Link
-                  to="/login"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="block px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
-                >
-                  Login
-                </Link>
+                {isAuthenticated ? (
+                  <>
+                    <Link
+                      to="/profile"
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="block px-4 py-2 rounded-lg text-sm font-medium text-gray-300 hover:bg-gray-700 flex items-center gap-2"
+                    >
+                      <User className="w-4 h-4" />
+                      Profile
+                    </Link>
+                    <button
+                      onClick={() => {
+                        handleLogout();
+                        setMobileMenuOpen(false);
+                      }}
+                      className="block w-full text-left px-4 py-2 bg-gray-700 text-white rounded-lg text-sm font-medium hover:bg-gray-600 flex items-center gap-2"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      Logout
+                    </button>
+                  </>
+                ) : (
+                  <Link
+                    to="/login"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="block px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+                  >
+                    Login
+                  </Link>
+                )}
               </div>
             </motion.div>
           )}

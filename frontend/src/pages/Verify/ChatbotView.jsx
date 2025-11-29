@@ -531,7 +531,7 @@ const ChatbotView = ({
                 {/* Message bubble below file preview */}
                 <div className={`flex ${bubbleAlignment} max-w-[65%]`}>
                   <div
-                    className={`rounded-lg px-4 py-3 shadow-sm break-words w-full ${
+                    className={`rounded-lg px-4 py-3 shadow-sm break-words w-full whitespace-pre-wrap ${
                       message.type === "ai"
                         ? isDarkMode
                           ? "bg-gray-800 text-gray-100"
@@ -742,10 +742,10 @@ const ChatbotView = ({
               onChange={(e) => setInputValue(e.target.value)}
               onKeyPress={handleKeyPress}
               placeholder="Ask me to verify something..."
-              className={`flex-1 resize-none bg-transparent px-3 py-3 text-base focus:outline-none ${
+              className={`flex-1 resize-none bg-transparent px-3 py-3 text-base focus:outline-none whitespace-pre-wrap ${
                 isDarkMode ? "text-white placeholder-gray-500" : "text-gray-900 placeholder-gray-500"
               }`}
-              style={{ minHeight: "56px" }}
+              style={{ minHeight: "56px", maxHeight: "200px" }}
               animate={{
                 color: isDarkMode ? "#ffffff" : "#111827",
               }}

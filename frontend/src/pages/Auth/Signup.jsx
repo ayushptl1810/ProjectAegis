@@ -2,15 +2,32 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 // eslint-disable-next-line no-unused-vars
 import { motion } from "framer-motion";
-import { Mail, Lock, UserPlus } from "lucide-react";
+import { Mail, Lock, UserPlus, Phone, Calendar } from "lucide-react";
 import { getApiBaseUrl } from "../../services/api";
+import { useAuth } from "../../contexts/AuthContext";
+
+const DOMAIN_OPTIONS = [
+  "Politics",
+  "Technology",
+  "Health",
+  "Crime",
+  "Military",
+  "Sports",
+  "Entertainment",
+  "Social Media only",
+];
 
 const Signup = () => {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const [formData, setFormData] = useState({
+    name: "",
     email: "",
     password: "",
     confirmPassword: "",
+    phoneNumber: "",
+    age: "",
+    domainPreferences: [],
   });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -38,15 +55,19 @@ const Signup = () => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          name: formData.name,
           email: formData.email,
           password: formData.password,
+          phone_number: formData.phoneNumber,
+          age: formData.age ? parseInt(formData.age) : null,
+          domain_preferences: formData.domainPreferences,
         }),
       });
 
       if (response.ok) {
         const data = await response.json();
-        if (data.token) {
-          localStorage.setItem("auth_token", data.token);
+        if (data.token && data.user) {
+          login(data.user, data.token);
         }
         navigate("/");
       } else {
@@ -80,6 +101,25 @@ const Signup = () => {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
+                Full Name
+              </label>
+              <div className="relative">
+                <UserPlus className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type="text"
+                  required
+                  value={formData.name}
+                  onChange={(e) =>
+                    setFormData({ ...formData, name: e.target.value })
+                  }
+                  className="w-full pl-10 pr-4 py-2 bg-gray-700 text-white rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="John Doe"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
                 Email
               </label>
               <div className="relative">
@@ -94,6 +134,48 @@ const Signup = () => {
                   className="w-full pl-10 pr-4 py-2 bg-gray-700 text-white rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="you@example.com"
                 />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Phone Number
+                </label>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type="tel"
+                    required
+                    value={formData.phoneNumber}
+                    onChange={(e) =>
+                      setFormData({ ...formData, phoneNumber: e.target.value })
+                    }
+                    className="w-full pl-10 pr-4 py-2 bg-gray-700 text-white rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="+1234567890"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Age
+                </label>
+                <div className="relative">
+                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type="number"
+                    required
+                    min="13"
+                    max="120"
+                    value={formData.age}
+                    onChange={(e) =>
+                      setFormData({ ...formData, age: e.target.value })
+                    }
+                    className="w-full pl-10 pr-4 py-2 bg-gray-700 text-white rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="25"
+                  />
+                </div>
               </div>
             </div>
 
@@ -133,6 +215,48 @@ const Signup = () => {
                   placeholder="••••••••"
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-3">
+                Select Domains for Updates (Optional)
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                {DOMAIN_OPTIONS.map((domain) => (
+                  <label
+                    key={domain}
+                    className="flex items-center space-x-2 cursor-pointer p-2 rounded-lg border border-gray-600 hover:border-blue-500 transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={formData.domainPreferences.includes(domain)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setFormData({
+                            ...formData,
+                            domainPreferences: [
+                              ...formData.domainPreferences,
+                              domain,
+                            ],
+                          });
+                        } else {
+                          setFormData({
+                            ...formData,
+                            domainPreferences: formData.domainPreferences.filter(
+                              (d) => d !== domain
+                            ),
+                          });
+                        }
+                      }}
+                      className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-gray-300">{domain}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="mt-2 text-xs text-gray-400">
+                Choose domains you'd like to receive fact-check alerts for
+              </p>
             </div>
 
             <button

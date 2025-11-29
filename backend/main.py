@@ -1384,59 +1384,150 @@ class LoginRequest(BaseModel):
     password: str
 
 class SignupRequest(BaseModel):
+    name: str
     email: str
     password: str
+    phone_number: Optional[str] = None
+    age: Optional[int] = None
+    domain_preferences: Optional[List[str]] = []
 
 class UserResponse(BaseModel):
     email: str
     id: Optional[str] = None
 
-# Simple in-memory user store (replace with database in production)
-users_db = {}
-
 @app.post("/auth/signup")
 async def signup(request: SignupRequest):
     """Sign up a new user"""
-    if request.email in users_db:
-        raise HTTPException(status_code=400, detail="Email already registered")
+    if not mongodb_service:
+        raise HTTPException(status_code=503, detail="MongoDB service not available")
     
-    # In production, hash the password
-    users_db[request.email] = {
-        "email": request.email,
-        "password": request.password,  # Should be hashed
-        "id": str(len(users_db) + 1)
-    }
-    
-    return {
-        "message": "User created successfully",
-        "token": "mock_token_" + request.email,  # In production, use JWT
-        "user": {"email": request.email, "id": users_db[request.email]["id"]}
-    }
+    try:
+        # Hash password (in production, use bcrypt or similar)
+        import hashlib
+        password_hash = hashlib.sha256(request.password.encode()).hexdigest()
+        
+        user_data = {
+            "name": request.name,
+            "email": request.email,
+            "password": password_hash,
+            "phone_number": request.phone_number,
+            "age": request.age,
+            "domain_preferences": request.domain_preferences or [],
+            "created_at": None,  # Will be set by MongoDB service
+            "updated_at": None,
+        }
+        
+        user = mongodb_service.create_user(user_data)
+        
+        # Generate token (in production, use JWT)
+        token = f"mock_token_{request.email}"
+        
+        return {
+            "message": "User created successfully",
+            "token": token,
+            "user": {
+                "name": user.get("name"),
+                "email": user["email"],
+                "id": user["id"],
+                "phone_number": user.get("phone_number"),
+                "age": user.get("age"),
+                "domain_preferences": user.get("domain_preferences", [])
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Signup error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create user")
 
 @app.post("/auth/login")
 async def login(request: LoginRequest):
     """Login user"""
-    if request.email not in users_db:
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+    if not mongodb_service:
+        raise HTTPException(status_code=503, detail="MongoDB service not available")
     
-    user = users_db[request.email]
-    if user["password"] != request.password:
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-    
-    return {
-        "message": "Login successful",
-        "token": "mock_token_" + request.email,  # In production, use JWT
-        "user": {"email": request.email, "id": user["id"]}
-    }
+    try:
+        user = mongodb_service.get_user_by_email(request.email)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        
+        # Verify password (in production, use bcrypt or similar)
+        import hashlib
+        password_hash = hashlib.sha256(request.password.encode()).hexdigest()
+        
+        if user["password"] != password_hash:
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        
+        # Generate token (in production, use JWT)
+        token = f"mock_token_{request.email}"
+        
+        return {
+            "message": "Login successful",
+            "token": token,
+            "user": {
+                "name": user.get("name"),
+                "email": user["email"],
+                "id": user["id"],
+                "phone_number": user.get("phone_number"),
+                "age": user.get("age"),
+                "domain_preferences": user.get("domain_preferences", [])
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Login error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to login")
 
 @app.get("/auth/me")
-async def get_current_user():
+async def get_current_user(request: Request):
     """Get current user (requires authentication in production)"""
+    if not mongodb_service:
+        raise HTTPException(status_code=503, detail="MongoDB service not available")
+    
     # In production, verify JWT token from Authorization header
-    return {
-        "email": "demo@example.com",
-        "id": "1"
-    }
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    token = auth_header.replace("Bearer ", "")
+    
+    # Extract email from token (in production, decode JWT)
+    if not token.startswith("mock_token_"):
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    email = token.replace("mock_token_", "")
+    
+    try:
+        user = mongodb_service.get_user_by_email(email)
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        
+        # Get subscription tier from user document (preferred) or check subscription
+        subscription_tier = user.get("subscription_tier", "Free")
+        
+        # If not in user doc, check active subscription
+        if subscription_tier == "Free" and user.get("id"):
+            subscription = mongodb_service.get_user_subscription(user_id=user["id"], status="active")
+            if subscription:
+                subscription_tier = subscription.get("plan_name", "Free")
+                # Update user document with subscription tier
+                mongodb_service.update_user_subscription_tier(user["id"], subscription_tier)
+        
+        return {
+            "name": user.get("name"),
+            "email": user["email"],
+            "id": user["id"],
+            "phone_number": user.get("phone_number"),
+            "age": user.get("age"),
+            "domain_preferences": user.get("domain_preferences", []),
+            "subscription_tier": subscription_tier
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get user error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get user")
 
 
 # ---------- Chat history endpoints ----------
@@ -1707,16 +1798,35 @@ async def create_subscription(request: CreateSubscriptionRequest):
         # Get plan details
         plan = razorpay_service.get_plan(request.plan_id)
         
+        # Extract plan name - try multiple possible locations
+        plan_name = "Pro"  # Default
+        if plan:
+            # Try different possible locations for plan name
+            plan_name_raw = (
+                plan.get("item", {}).get("name") or
+                plan.get("name") or
+                request.notes.get("plan_name") if request.notes else None or
+                "Pro"
+            )
+            # Normalize plan name
+            plan_name_raw_lower = plan_name_raw.lower()
+            if "pro" in plan_name_raw_lower:
+                plan_name = "Pro"
+            elif "enterprise" in plan_name_raw_lower:
+                plan_name = "Enterprise"
+            else:
+                plan_name = plan_name_raw
+        
         # Store subscription in MongoDB
         from datetime import datetime
         subscription_data = {
             "user_id": request.user_id,
             "razorpay_subscription_id": subscription.get("id"),
             "razorpay_plan_id": request.plan_id,
-            "plan_name": plan.get("item", {}).get("name", "Unknown"),
+            "plan_name": plan_name,
             "status": subscription.get("status", "created"),
-            "amount": plan.get("item", {}).get("amount", 0),
-            "currency": plan.get("item", {}).get("currency", "INR"),
+            "amount": plan.get("item", {}).get("amount", 0) if plan else 0,
+            "currency": plan.get("item", {}).get("currency", "INR") if plan else "INR",
             "current_start": subscription.get("current_start"),
             "current_end": subscription.get("current_end"),
             "next_billing_at": subscription.get("end_at"),
@@ -1725,6 +1835,14 @@ async def create_subscription(request: CreateSubscriptionRequest):
         }
         
         mongodb_service.upsert_subscription(subscription_data)
+        
+        # Update user's subscription tier immediately if status is active
+        # Otherwise, it will be updated via webhook when payment is completed
+        if subscription.get("status") == "active":
+            mongodb_service.update_user_subscription_tier(request.user_id, plan_name)
+            logger.info(f"✅ Updated user {request.user_id} subscription tier to {plan_name}")
+        else:
+            logger.info(f"⏳ Subscription created with status '{subscription.get('status')}'. User tier will be updated when subscription is activated via webhook.")
         
         return {
             "success": True,
@@ -1870,15 +1988,33 @@ async def razorpay_webhook(request: Request):
             subscription_id = subscription.get("id")
             
             if subscription_id:
-                mongodb_service.update_subscription_status(
-                    subscription_id,
-                    "active",
-                    {
-                        "current_start": subscription.get("current_start"),
-                        "current_end": subscription.get("current_end"),
-                        "next_billing_at": subscription.get("end_at")
-                    }
-                )
+                # Get subscription from DB to get user_id and plan_name
+                sub_doc = mongodb_service.get_subscription_by_razorpay_id(subscription_id)
+                if sub_doc:
+                    user_id = sub_doc.get("user_id")
+                    plan_name = sub_doc.get("plan_name", "Pro")
+                    
+                    logger.info(f"📥 Processing subscription.activated for user {user_id}, plan {plan_name}")
+                    
+                    mongodb_service.update_subscription_status(
+                        subscription_id,
+                        "active",
+                        {
+                            "current_start": subscription.get("current_start"),
+                            "current_end": subscription.get("current_end"),
+                            "next_billing_at": subscription.get("end_at")
+                        }
+                    )
+                    
+                    # Update user's subscription tier
+                    if user_id:
+                        success = mongodb_service.update_user_subscription_tier(user_id, plan_name)
+                        if success:
+                            logger.info(f"✅ Successfully updated user {user_id} tier to {plan_name} via webhook")
+                        else:
+                            logger.error(f"❌ Failed to update user {user_id} tier to {plan_name}")
+                else:
+                    logger.warning(f"⚠️ Subscription {subscription_id} not found in database")
         
         elif event == "subscription.charged":
             subscription = payload.get("subscription", {}).get("entity", {})
@@ -1886,35 +2022,62 @@ async def razorpay_webhook(request: Request):
             subscription_id = subscription.get("id")
             
             if subscription_id:
-                # Update subscription with payment info
-                update_data = {
-                    "current_start": subscription.get("current_start"),
-                    "current_end": subscription.get("current_end"),
-                    "next_billing_at": subscription.get("end_at"),
-                    "last_payment_id": payment.get("id"),
-                    "last_payment_amount": payment.get("amount"),
-                    "last_payment_date": payment.get("created_at")
-                }
-                mongodb_service.update_subscription_status(
-                    subscription_id,
-                    subscription.get("status", "active"),
-                    update_data
-                )
+                # Get subscription from DB to get user_id and plan_name
+                sub_doc = mongodb_service.get_subscription_by_razorpay_id(subscription_id)
+                if sub_doc:
+                    user_id = sub_doc.get("user_id")
+                    plan_name = sub_doc.get("plan_name", "Pro")
+                    
+                    logger.info(f"📥 Processing subscription.charged for user {user_id}, plan {plan_name}")
+                    
+                    # Update subscription with payment info
+                    update_data = {
+                        "current_start": subscription.get("current_start"),
+                        "current_end": subscription.get("current_end"),
+                        "next_billing_at": subscription.get("end_at"),
+                        "last_payment_id": payment.get("id"),
+                        "last_payment_amount": payment.get("amount"),
+                        "last_payment_date": payment.get("created_at")
+                    }
+                    mongodb_service.update_subscription_status(
+                        subscription_id,
+                        subscription.get("status", "active"),
+                        update_data
+                    )
+                    
+                    # Update user's subscription tier when payment is charged
+                    if user_id and subscription.get("status") == "active":
+                        success = mongodb_service.update_user_subscription_tier(user_id, plan_name)
+                        if success:
+                            logger.info(f"✅ Successfully updated user {user_id} tier to {plan_name} via subscription.charged webhook")
+                        else:
+                            logger.error(f"❌ Failed to update user {user_id} tier to {plan_name}")
+                else:
+                    logger.warning(f"⚠️ Subscription {subscription_id} not found in database for subscription.charged event")
         
         elif event == "subscription.cancelled":
             subscription = payload.get("subscription", {}).get("entity", {})
             subscription_id = subscription.get("id")
             
             if subscription_id:
-                mongodb_service.update_subscription_status(
-                    subscription_id,
-                    "cancelled",
-                    {
-                        "current_start": subscription.get("current_start"),
-                        "current_end": subscription.get("current_end"),
-                        "next_billing_at": subscription.get("end_at")
-                    }
-                )
+                # Get subscription from DB to get user_id
+                sub_doc = mongodb_service.get_subscription_by_razorpay_id(subscription_id)
+                if sub_doc:
+                    user_id = sub_doc.get("user_id")
+                    
+                    mongodb_service.update_subscription_status(
+                        subscription_id,
+                        "cancelled",
+                        {
+                            "current_start": subscription.get("current_start"),
+                            "current_end": subscription.get("current_end"),
+                            "next_billing_at": subscription.get("end_at")
+                        }
+                    )
+                    
+                    # Update user's subscription tier to Free
+                    if user_id:
+                        mongodb_service.update_user_subscription_tier(user_id, "Free")
         
         elif event == "payment.failed":
             payment = payload.get("payment", {}).get("entity", {})
