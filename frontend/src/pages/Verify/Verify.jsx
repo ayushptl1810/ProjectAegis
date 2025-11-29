@@ -336,6 +336,8 @@ const Verify = () => {
               (activeChatId && messagesBySession[activeChatId]) || []
             }
             onTurnPersist={handlePersistTurn}
+            anonymousId={anonymousId}
+            userId={userId}
           />
         </div>
       </div>

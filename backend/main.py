@@ -64,6 +64,64 @@ app.mount("/static", StaticFiles(directory="public"), name="static")
 app.mount("/frames", StaticFiles(directory="public/frames"), name="frames")
 
 
+# ---------- Tier configuration ----------
+
+# Public-facing tiers used across the product
+NORMALIZED_TIERS = ("Free", "Plus", "Pro")
+
+# Map stored subscription_tier / plan_name values to normalized tiers.
+# This keeps backward compatibility with any existing users whose tier
+# might still be stored as \"Pro\" or \"Enterprise\".
+SUBSCRIPTION_TIER_MAPPING = {
+    "free": "Free",
+    "plus": "Plus",
+    "pro": "Plus",          # legacy Pro maps to Plus
+    "enterprise": "Pro",    # highest tier maps to Pro
+}
+
+# Central limits per tier so they can be tuned in one place.
+# These values are intentionally conservative to protect API costs.
+TIER_LIMITS = {
+    "Free": {
+        "daily_verifications": 5,
+        "monthly_verifications": 25,
+        "max_chat_sessions": 1,
+        "max_messages_per_session": 10,
+    },
+    "Plus": {
+        "daily_verifications": 10,
+        "monthly_verifications": 50,
+        "max_chat_sessions": 5,
+        "max_messages_per_session": 50,
+    },
+    "Pro": {
+        "daily_verifications": 25,
+        "monthly_verifications": 200,
+        "max_chat_sessions": 20,
+        "max_messages_per_session": 200,
+    },
+}
+
+
+def get_normalized_tier(raw_tier: str | None) -> str:
+    """
+    Normalize any stored subscription_tier / plan_name to one of
+    the public-facing tiers: Free, Plus, Pro.
+    """
+    if not raw_tier:
+        return "Free"
+    key = str(raw_tier).strip().lower()
+    return SUBSCRIPTION_TIER_MAPPING.get(key, "Free")
+
+
+def get_tier_limits(raw_tier: str | None) -> dict:
+    """
+    Return the limits dict for a given stored tier value.
+    """
+    normalized = get_normalized_tier(raw_tier)
+    return TIER_LIMITS.get(normalized, TIER_LIMITS["Free"])
+
+
 # Initialize verifiers and input processor
 image_verifier = ImageVerifier()
 video_verifier = VideoVerifier()
@@ -770,8 +828,11 @@ async def _verify_youtube_video(url: str, claim_context: str, claim_date: str) -
 
 @app.post("/chatbot/verify")
 async def chatbot_verify(
+    request: Request,
     text_input: Optional[str] = Form(None),
-    files: Optional[List[UploadFile]] = File(None)
+    files: Optional[List[UploadFile]] = File(None),
+    anonymous_id: Optional[str] = Form(None),
+    user_id: Optional[str] = Form(None),
 ):
     """
     Chatbot-friendly endpoint that intelligently processes input and routes to appropriate verification
@@ -781,6 +842,60 @@ async def chatbot_verify(
         print(f"🔍 DEBUG: text_input = {text_input}")
         print(f"🔍 DEBUG: files = {files}")
         print(f"🔍 DEBUG: files type = {type(files)}")
+        print(f"🔍 DEBUG: anonymous_id = {anonymous_id}")
+        print(f"🔍 DEBUG: user_id = {user_id}")
+
+        # Determine logical user key and tier for rate limiting
+        user_doc = None
+        raw_tier = "Free"
+        if user_id and mongodb_service:
+            try:
+                user_doc = mongodb_service.get_user_by_id(user_id)
+            except Exception as e:
+                logger.warning(
+                    f"⚠️ Failed to load user {user_id} for tier resolution: {e}"
+                )
+
+        if user_doc:
+            raw_tier = user_doc.get("subscription_tier") or "Free"
+        else:
+            raw_tier = "Free"
+
+        limits = get_tier_limits(raw_tier)
+        key_host = getattr(request.client, "host", "unknown")
+        key = user_id or anonymous_id or f"ip:{key_host}"
+
+        if mongodb_service:
+            usage_info = mongodb_service.increment_usage_and_check_limits(
+                key=key,
+                feature="verification",
+                daily_limit=limits.get("daily_verifications"),
+                monthly_limit=limits.get("monthly_verifications"),
+            )
+        else:
+            usage_info = {
+                "allowed": True,
+                "tier_limits": {
+                    "daily": limits.get("daily_verifications"),
+                    "monthly": limits.get("monthly_verifications"),
+                },
+            }
+
+        if not usage_info.get("allowed", True):
+            normalized_tier = get_normalized_tier(raw_tier)
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": "verification_limit_reached",
+                    "tier": normalized_tier,
+                    "key": key,
+                    "limits": usage_info.get("tier_limits"),
+                    "usage": {
+                        "daily": usage_info.get("daily"),
+                        "monthly": usage_info.get("monthly"),
+                    },
+                },
+            )
         received_files_meta: List[Dict[str, Any]] = []
         if files:
             for i, file in enumerate(files):

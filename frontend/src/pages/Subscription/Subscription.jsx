@@ -61,18 +61,161 @@ const Subscription = () => {
 
   const handlePlanClick = async (plan) => {
     if (plan.name === "Free") {
-      // Handle free plan - maybe redirect or show message
-      return;
-    }
-
-    if (plan.name === "Enterprise") {
-      // Handle enterprise plan - maybe open contact form or email
-      window.location.href = "mailto:support@example.com?subject=Enterprise Plan Inquiry";
+      // Already on the free tier – no checkout needed
       return;
     }
 
     if (plan.name === "Pro") {
       await handleProSubscription();
+      return;
+    }
+
+    if (plan.name === "Plus") {
+      await handlePlusSubscription();
+    }
+  };
+
+  const handlePlusSubscription = async () => {
+    if (!razorpayLoaded) {
+      setError("Payment gateway is still loading. Please wait...");
+      return;
+    }
+
+    if (!razorpayKeyId) {
+      setError("Razorpay Key ID not configured. Please contact support.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    if (!isAuthenticated || !user) {
+      setError("You must be logged in to subscribe");
+      navigate("/login");
+      return;
+    }
+
+    try {
+      const userId = user.id;
+
+      // Get available plans and find Plus plan (backed by a Razorpay subscription)
+      const plansResponse = await subscriptionService.getPlans();
+      const plans = plansResponse.data.plans?.items || [];
+
+      // Find Plus plan (by name or explicit env ID)
+      let plusPlan =
+        plans.find((p) =>
+          p.item?.name?.toLowerCase().includes("plus")
+        ) ||
+        plans.find(
+          (p) => p.id === import.meta.env?.VITE_PLUS_PLAN_ID
+        );
+
+      // If Plus plan doesn't exist, create it
+      if (!plusPlan) {
+        // Create Plus plan: $4.99 = 49900 paise (for INR) or 499 cents (for USD)
+        // Note: Adjust amount based on your currency
+        const planResponse = await subscriptionService.createPlan({
+          name: "Plus Plan",
+          amount: 49900, // 499.00 in smallest unit (adjust for your currency)
+          currency: "INR", // Change to USD if needed
+          interval: 1,
+          period: "monthly",
+          description: "Plus Plan - Monthly Subscription",
+        });
+        plusPlan = planResponse.data.plan;
+      }
+
+      const PLUS_PLAN_ID = plusPlan.id;
+
+      // Create subscription
+      const response = await subscriptionService.createSubscription(
+        PLUS_PLAN_ID,
+        userId,
+        { plan_name: "Plus", source: "web" }
+      );
+
+      if (response.data.success && response.data.subscription_id) {
+        // Initialize Razorpay Checkout
+        const options = {
+          key: razorpayKeyId,
+          subscription_id: response.data.subscription_id,
+          name: "Aegis Fact Checker",
+          description: "Plus Plan - Monthly Subscription",
+          prefill: {
+            name: localStorage.getItem("user_name") || "",
+            email: localStorage.getItem("user_email") || "",
+            contact: localStorage.getItem("user_phone") || "",
+          },
+          theme: {
+            color: "#06b6d4", // cyan-500
+          },
+          handler: function (response) {
+            console.log("✅ Payment successful:", response);
+            setLoading(false);
+            // Refresh user data to get updated subscription tier
+            if (refreshUser) {
+              refreshUser();
+            }
+            // Show success message or redirect
+            alert("Subscription activated successfully! Welcome to Plus plan.");
+            // Optionally reload or redirect
+            window.location.reload();
+          },
+          modal: {
+            ondismiss: function () {
+              console.log("Payment modal closed");
+              setLoading(false);
+            },
+          },
+        };
+
+        const rzp = new window.Razorpay(options);
+        rzp.on("payment.failed", function (response) {
+          console.error("❌ Payment failed - Full response:", JSON.stringify(response, null, 2));
+          
+          // Extract error message from various possible structures
+          let errorMsg = "Unknown payment error";
+          if (response.error) {
+            if (typeof response.error === "string") {
+              errorMsg = response.error;
+            } else if (response.error.description) {
+              errorMsg = response.error.description;
+            } else if (response.error.reason) {
+              errorMsg = response.error.reason;
+            } else if (response.error.code) {
+              errorMsg = `Error code: ${response.error.code}`;
+            } else {
+              errorMsg = JSON.stringify(response.error);
+            }
+          } else if (response.metadata && response.metadata.error) {
+            errorMsg = response.metadata.error;
+          }
+          
+          setError(`Payment failed: ${errorMsg}`);
+          setLoading(false);
+        });
+        
+        rzp.on("payment.authorized", function (response) {
+          console.log("✅ Payment authorized:", response);
+        });
+        
+        rzp.on("payment.captured", function (response) {
+          console.log("✅ Payment captured:", response);
+        });
+
+        rzp.open();
+      } else {
+        throw new Error("Failed to create subscription");
+      }
+    } catch (err) {
+      console.error("❌ Subscription error:", err);
+      setError(
+        err.response?.data?.detail ||
+        err.message ||
+        "Failed to initiate subscription. Please try again."
+      );
+      setLoading(false);
     }
   };
 
@@ -98,17 +241,22 @@ const Subscription = () => {
 
     try {
       const userId = user.id;
-      
-      // Get available plans and find Pro plan
+
+      // Get available plans and find Pro plan (backed by a Razorpay subscription)
       const plansResponse = await subscriptionService.getPlans();
       const plans = plansResponse.data.plans?.items || [];
-      
-      // Find Pro plan (you can customize this logic based on your plan naming)
-      let proPlan = plans.find(p => 
-        p.item?.name?.toLowerCase().includes("pro") || 
-        p.id === import.meta.env?.VITE_PRO_PLAN_ID
-      );
-      
+
+      // Find Pro plan (by name or explicit env ID)
+      // Note: Backend maps "Enterprise" to "Pro" tier
+      let proPlan =
+        plans.find((p) =>
+          p.item?.name?.toLowerCase().includes("pro") ||
+          p.item?.name?.toLowerCase().includes("enterprise")
+        ) ||
+        plans.find(
+          (p) => p.id === import.meta.env?.VITE_PRO_PLAN_ID
+        );
+
       // If Pro plan doesn't exist, create it
       if (!proPlan) {
         // Create Pro plan: $9.99 = 99900 paise (for INR) or 999 cents (for USD)
@@ -119,18 +267,19 @@ const Subscription = () => {
           currency: "INR", // Change to USD if needed
           interval: 1,
           period: "monthly",
-          description: "Pro Plan - Monthly Subscription"
+          description: "Pro Plan - Monthly Subscription",
         });
         proPlan = planResponse.data.plan;
       }
-      
+
       const PRO_PLAN_ID = proPlan.id;
-      
+
       // Create subscription
+      // Backend maps "Enterprise" plan_name to "Pro" tier
       const response = await subscriptionService.createSubscription(
         PRO_PLAN_ID,
         userId,
-        { plan_name: "Pro", source: "web" }
+        { plan_name: "Enterprise", source: "web" }
       );
 
       if (response.data.success && response.data.subscription_id) {
@@ -216,63 +365,87 @@ const Subscription = () => {
       setLoading(false);
     }
   };
+
   const plans = [
     {
       name: "Free",
       price: "$0",
       period: "forever",
-      description: "Great for individuals validating occasional claims.",
+      description: "Perfect for trying out our fact-checking service.",
       features: [
-        { title: "Basic fact-checking" },
-        { title: "5 verifications per day", description: "Fair-use limits" },
-        { title: "Community support" },
+        {
+          title: "5 verifications per day",
+          description: "25 verifications per month",
+        },
+        {
+          title: "1 chat session",
+          description: "Up to 10 messages per session",
+        },
+        {
+          title: "All verification types",
+          description: "Text, images, videos, and URLs",
+        },
+        {
+          title: "Educational modules access",
+          description: "Learn how to spot misinformation",
+        },
       ],
-      ctaLabel: "Start For Free",
+      ctaLabel: "Use Free Tier",
       guaranteeText: "No credit card required",
+    },
+    {
+      name: "Plus",
+      price: "$4.99",
+      period: "per month",
+      description: "Ideal for regular users who need more capacity.",
+      features: [
+        {
+          title: "10 verifications per day",
+          description: "50 verifications per month",
+        },
+        {
+          title: "5 chat sessions",
+          description: "Up to 50 messages per session",
+        },
+        {
+          title: "All verification types",
+          description: "Text, images, videos, and URLs",
+        },
+        {
+          title: "Full educational modules access",
+          description: "Complete learning resources",
+        },
+      ],
+      highlighted: true,
+      badgeText: "RECOMMENDED",
+      ctaLabel: "Upgrade To Plus",
+      guaranteeText: "Cancel anytime",
     },
     {
       name: "Pro",
       price: "$9.99",
       period: "per month",
-      description: "Built for teams that rely on trusted information daily.",
+      description: "For power users and organizations needing high volume.",
       features: [
         {
-          title: "Unlimited verifications",
-          description: "Remove usage caps entirely",
+          title: "25 verifications per day",
+          description: "200 verifications per month",
+        },
+        {
+          title: "20 chat sessions",
+          description: "Up to 200 messages per session",
         },
         {
           title: "Priority processing",
-          description: "Jump the verification queue",
+          description: "Faster verification turnaround",
         },
         {
-          title: "Advanced AI analysis",
-          description: "Deeper cross-source checks",
+          title: "All premium features",
+          description: "Complete access to all capabilities",
         },
-        { title: "Email support" },
-        { title: "Detailed reports", description: "Download and share" },
       ],
-      highlighted: true,
-      badgeText: "POPULAR",
       ctaLabel: "Upgrade To Pro",
-      guaranteeText: "30-day money-back guarantee",
-    },
-    {
-      name: "Enterprise",
-      price: "Custom",
-      period: "",
-      description: "Tailored verification pipelines for large organizations.",
-      features: [
-        { title: "Everything in Pro" },
-        { title: "API access", description: "Embed verification workflows" },
-        { title: "Custom integrations" },
-        {
-          title: "Dedicated support",
-          description: "Named specialists & playbooks",
-        },
-        { title: "SLA guarantee" },
-      ],
-      ctaLabel: "Talk To Us",
-      guaranteeText: "Custom SLAs & onboarding",
+      guaranteeText: "Cancel anytime",
     },
   ];
 
@@ -385,12 +558,12 @@ const Subscription = () => {
                     <div className="relative mt-auto pt-6">
                       <button
                         onClick={() => handlePlanClick(plan)}
-                        disabled={loading || (plan.name === "Pro" && !razorpayLoaded)}
+                        disabled={loading || ((plan.name === "Plus" || plan.name === "Pro") && !razorpayLoaded)}
                         className="group/btn relative w-full overflow-hidden rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 p-px font-semibold text-white shadow-[0_1000px_0_0_hsl(0_0%_100%_/_0%)_inset] transition-colors hover:shadow-[0_1000px_0_0_hsl(0_0%_100%_/_2%)_inset] disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <div className="relative rounded-xl bg-slate-950/50 px-4 py-3 transition-colors group-hover/btn:bg-transparent">
                           <span className="relative flex items-center justify-center gap-2">
-                            {loading && plan.name === "Pro" ? (
+                            {loading && (plan.name === "Plus" || plan.name === "Pro") ? (
                               <>
                                 <svg
                                   className="animate-spin h-4 w-4"

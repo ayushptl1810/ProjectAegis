@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import logoImg from "../../assets/logo.png";
+import TierLimitModal from "../../components/TierLimitModal";
 
 const ChatbotView = ({
   isDarkMode,
@@ -24,12 +25,14 @@ const ChatbotView = ({
   sessionId,
   initialMessages = [],
   onTurnPersist,
+  anonymousId,
+  userId,
 }) => {
   // Initialize inputValue from URL query parameter if present
   const getInitialInputValue = () => {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search);
-      const textParam = urlParams.get('text');
+      const textParam = urlParams.get("text");
       if (textParam && textParam.trim()) {
         try {
           return decodeURIComponent(textParam.trim());
@@ -56,6 +59,7 @@ const ChatbotView = ({
   const [isDragging, setIsDragging] = useState(false);
   const dropZoneRef = useRef(null);
   const [searchParams, setSearchParams] = useSearchParams();
+  const [limitError, setLimitError] = useState(null);
 
   useEffect(() => {
     // Reset messages when session changes
@@ -70,12 +74,12 @@ const ChatbotView = ({
 
   // Clear the query parameter from URL after component mounts
   useEffect(() => {
-    if (inputValue && window.location.search.includes('text=')) {
+    if (inputValue && window.location.search.includes("text=")) {
       // Clear the query parameter from URL after a delay
       setTimeout(() => {
         const url = new URL(window.location.href);
-        url.searchParams.delete('text');
-        window.history.replaceState({}, '', url.pathname + url.search);
+        url.searchParams.delete("text");
+        window.history.replaceState({}, "", url.pathname + url.search);
       }, 1000);
     }
   }, [inputValue]);
@@ -162,6 +166,14 @@ const ChatbotView = ({
         });
       }
 
+      // Attach identity hints for rate limiting and history
+      if (anonymousId) {
+        formData.append("anonymous_id", anonymousId);
+      }
+      if (userId) {
+        formData.append("user_id", userId);
+      }
+
       const apiBase = getApiBaseUrl();
 
       const response = await fetch(`${apiBase}/chatbot/verify`, {
@@ -169,15 +181,38 @@ const ChatbotView = ({
         body: formData, // Send FormData instead of JSON
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      // Parse response once
+      let result;
+      try {
+        result = await response.json();
+      } catch (e) {
+        // If JSON parsing fails, treat as generic error
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        throw new Error("Failed to parse response");
       }
 
-      const result = await response.json();
+      // Check for limit errors (429 status)
+      if (!response.ok && response.status === 429 && result.error === "verification_limit_reached") {
+        setLimitError({
+          tier: result.tier || "Free",
+          limits: result.limits || {},
+          usage: result.usage || {},
+          feature: "verification",
+        });
+        setIsLoading(false);
+        return; // Don't add error message, modal will show
+      }
+
+      if (!response.ok) {
+        throw new Error(result.error || `HTTP error! status: ${response.status}`);
+      }
+
       console.log("Verification result:", result);
 
       // Check if backend returned an error
-      if (result.error) {
+      if (result.error && result.error !== "verification_limit_reached") {
         throw new Error(result.error);
       }
 
@@ -354,7 +389,9 @@ const ChatbotView = ({
         <div className="absolute inset-0 z-50 bg-blue-600/20 backdrop-blur-sm flex items-center justify-center border-2 border-dashed border-blue-500 rounded-lg">
           <div className="text-center">
             <Upload className="w-12 h-12 text-blue-400 mx-auto mb-2" />
-            <p className="text-blue-400 font-semibold">Drop files here to upload</p>
+            <p className="text-blue-400 font-semibold">
+              Drop files here to upload
+            </p>
           </div>
         </div>
       )}
@@ -403,7 +440,9 @@ const ChatbotView = ({
               animate={{ opacity: 1 }}
               transition={{ delay: 0.4 }}
             >
-              Your AI-powered fact-checking assistant. Verify text claims, analyze images, check videos, and detect deepfakes with confidence.
+              Your AI-powered fact-checking assistant. Verify text claims,
+              analyze images, check videos, and detect deepfakes with
+              confidence.
             </motion.p>
 
             {/* Example Prompts */}
@@ -416,7 +455,8 @@ const ChatbotView = ({
               {[
                 {
                   title: "Verify Text Claims",
-                  prompt: "Is it true that the CEO of Astronomer cheated on his wife?",
+                  prompt:
+                    "Is it true that the CEO of Astronomer cheated on his wife?",
                   color: "from-blue-500/10 to-blue-600/10",
                   borderColor: "border-blue-500/20",
                 },
@@ -434,7 +474,8 @@ const ChatbotView = ({
                 },
                 {
                   title: "Audio Deepfake Analysis",
-                  prompt: "Check if this audio recording is AI-generated or authentic",
+                  prompt:
+                    "Check if this audio recording is AI-generated or authentic",
                   color: "from-emerald-500/10 to-emerald-600/10",
                   borderColor: "border-emerald-500/20",
                 },
@@ -479,72 +520,72 @@ const ChatbotView = ({
         {messages.length > 0 && (
           <div className="flex flex-col gap-4">
             {messages.map((message, idx) => {
-            const isUser = message.type === "user";
-            const alignment = isUser ? "items-end" : "items-start";
-            const bubbleAlignment = isUser ? "justify-end" : "justify-start";
-            return (
-              <div
-                key={message.id}
-                className={`mb-2 flex flex-col ${alignment}`}
-              >
-                {/* File preview (aligned and width limited like message) */}
-                {message.files && message.files.length > 0 && (
-                  <div className="mb-2 flex flex-wrap gap-2 max-w-[65%]">
-                    {message.files.map((file, i) => {
-                      const FileIcon = getFileIcon(file);
-                      const isImage =
-                        file.type && file.type.startsWith("image/");
-                      if (isImage) {
-                        const objectUrl = URL.createObjectURL(file);
+              const isUser = message.type === "user";
+              const alignment = isUser ? "items-end" : "items-start";
+              const bubbleAlignment = isUser ? "justify-end" : "justify-start";
+              return (
+                <div
+                  key={message.id}
+                  className={`mb-2 flex flex-col ${alignment}`}
+                >
+                  {/* File preview (aligned and width limited like message) */}
+                  {message.files && message.files.length > 0 && (
+                    <div className="mb-2 flex flex-wrap gap-2 max-w-[65%]">
+                      {message.files.map((file, i) => {
+                        const FileIcon = getFileIcon(file);
+                        const isImage =
+                          file.type && file.type.startsWith("image/");
+                        if (isImage) {
+                          const objectUrl = URL.createObjectURL(file);
+                          return (
+                            <div
+                              key={i}
+                              className="relative overflow-hidden rounded-md border border-gray-200 dark:border-gray-700"
+                            >
+                              <img
+                                src={objectUrl}
+                                alt={file.name || `upload-${i}`}
+                                className="w-full max-w-xs h-auto object-contain"
+                                onLoad={() => URL.revokeObjectURL(objectUrl)}
+                              />
+                            </div>
+                          );
+                        }
                         return (
                           <div
                             key={i}
-                            className="relative overflow-hidden rounded-md border border-gray-200 dark:border-gray-700"
+                            className={`flex items-center space-x-2 px-3 py-2 rounded-md border text-xs ${
+                              isDarkMode
+                                ? "bg-gray-800 border-gray-700 text-gray-200"
+                                : "bg-gray-50 border-gray-200 text-gray-700"
+                            }`}
                           >
-                            <img
-                              src={objectUrl}
-                              alt={file.name || `upload-${i}`}
-                              className="w-full max-w-xs h-auto object-contain"
-                              onLoad={() => URL.revokeObjectURL(objectUrl)}
-                            />
+                            <FileIcon className="w-4 h-4 text-blue-500" />
+                            <span className="truncate" title={file.name}>
+                              {file.name}
+                            </span>
                           </div>
                         );
-                      }
-                      return (
-                        <div
-                          key={i}
-                          className={`flex items-center space-x-2 px-3 py-2 rounded-md border text-xs ${
-                            isDarkMode
-                              ? "bg-gray-800 border-gray-700 text-gray-200"
-                              : "bg-gray-50 border-gray-200 text-gray-700"
-                          }`}
-                        >
-                          <FileIcon className="w-4 h-4 text-blue-500" />
-                          <span className="truncate" title={file.name}>
-                            {file.name}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                {/* Message bubble below file preview */}
-                <div className={`flex ${bubbleAlignment} max-w-[65%]`}>
-                  <div
-                    className={`rounded-lg px-4 py-3 shadow-sm break-words w-full whitespace-pre-wrap ${
-                      message.type === "ai"
-                        ? isDarkMode
-                          ? "bg-gray-800 text-gray-100"
-                          : "bg-gray-100 text-gray-900"
-                        : "bg-blue-500 text-white"
-                    }`}
-                  >
-                    {message.content}
+                      })}
+                    </div>
+                  )}
+                  {/* Message bubble below file preview */}
+                  <div className={`flex ${bubbleAlignment} max-w-[65%]`}>
+                    <div
+                      className={`rounded-lg px-4 py-3 shadow-sm break-words w-full whitespace-pre-wrap ${
+                        message.type === "ai"
+                          ? isDarkMode
+                            ? "bg-gray-800 text-gray-100"
+                            : "bg-gray-100 text-gray-900"
+                          : "bg-blue-500 text-white"
+                      }`}
+                    >
+                      {message.content}
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
           </div>
         )}
 
@@ -661,7 +702,9 @@ const ChatbotView = ({
       <motion.div
         className="border-t border-white/5 px-4 sm:px-8 py-4 backdrop-blur-lg"
         animate={{
-          backgroundColor: isDarkMode ? "rgba(6,10,20,0.8)" : "rgba(255,255,255,0.85)",
+          backgroundColor: isDarkMode
+            ? "rgba(6,10,20,0.8)"
+            : "rgba(255,255,255,0.85)",
         }}
         transition={{
           duration: 0.6,
@@ -700,7 +743,9 @@ const ChatbotView = ({
               whileTap={{ scale: 0.95 }}
               title={isRecording ? "Stop recording" : "Start voice note"}
             >
-              <Mic className={`h-5 w-5 ${isRecording ? "animate-pulse" : ""}`} />
+              <Mic
+                className={`h-5 w-5 ${isRecording ? "animate-pulse" : ""}`}
+              />
             </motion.button>
             {isRecording && (
               <motion.div
@@ -743,7 +788,9 @@ const ChatbotView = ({
               onKeyPress={handleKeyPress}
               placeholder="Ask me to verify something..."
               className={`flex-1 resize-none bg-transparent px-3 py-3 text-base focus:outline-none whitespace-pre-wrap ${
-                isDarkMode ? "text-white placeholder-gray-500" : "text-gray-900 placeholder-gray-500"
+                isDarkMode
+                  ? "text-white placeholder-gray-500"
+                  : "text-gray-900 placeholder-gray-500"
               }`}
               style={{ minHeight: "56px", maxHeight: "200px" }}
               animate={{
@@ -773,6 +820,13 @@ const ChatbotView = ({
           <div className="mt-2 text-xs text-red-500">{recordingError}</div>
         )}
       </motion.div>
+
+      {/* Tier Limit Modal */}
+      <TierLimitModal
+        isOpen={!!limitError}
+        onClose={() => setLimitError(null)}
+        limitInfo={limitError}
+      />
     </motion.div>
   );
 };

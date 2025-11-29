@@ -6,7 +6,7 @@ Handles MongoDB operations for debunk posts
 import os
 import logging
 from typing import List, Dict, Any, Optional
-from pymongo import MongoClient
+from pymongo import MongoClient, ReturnDocument
 from pymongo.errors import ConnectionFailure
 from dotenv import load_dotenv
 
@@ -54,13 +54,100 @@ class MongoDBService:
             self.subscriptions = self.db["subscriptions"]
             self.users = self.db["users"]
             self.weekly_posts = self.db["weekly_posts"]
+            self.usage_limits = self.db["usage_limits"]
             
             logger.info("✅ Successfully connected to MongoDB")
             
         except ConnectionFailure as e:
             logger.error(f"❌ Failed to connect to MongoDB: {e}")
             raise
-    
+
+    # ---------- Usage limits (verification / chat) ----------
+
+    def increment_usage_and_check_limits(
+        self,
+        key: str,
+        feature: str,
+        daily_limit: Optional[int],
+        monthly_limit: Optional[int],
+    ) -> Dict[str, Any]:
+        """
+        Increment usage counters for a given key/feature and return limit status.
+
+        Args:
+            key: Logical user key (user_id or anonymous_id)
+            feature: Feature name, e.g. "verification" or "chat_message"
+            daily_limit: Max allowed per day (None or <=0 means unlimited)
+            monthly_limit: Max allowed per month (None or <=0 means unlimited)
+
+        Returns:
+            Dict with:
+              - allowed: bool
+              - tier_limits: {daily, monthly}
+              - daily: {count, limit}
+              - monthly: {count, limit}
+        """
+        from datetime import datetime
+
+        if self.usage_limits is None:
+            logger.warning("⚠️ usage_limits collection not initialised")
+            return {
+                "allowed": True,
+                "tier_limits": {
+                    "daily": daily_limit,
+                    "monthly": monthly_limit,
+                },
+                "daily": {"count": 0, "limit": daily_limit},
+                "monthly": {"count": 0, "limit": monthly_limit},
+            }
+
+        now = datetime.utcnow()
+        date_str = now.strftime("%Y-%m-%d")
+        month_str = now.strftime("%Y-%m")
+
+        result: Dict[str, Any] = {
+            "allowed": True,
+            "tier_limits": {
+                "daily": daily_limit,
+                "monthly": monthly_limit,
+            },
+            "daily": {"count": 0, "limit": daily_limit},
+            "monthly": {"count": 0, "limit": monthly_limit},
+        }
+
+        # Helper to increment and evaluate a single period
+        def _inc_and_check(period_type: str, period_value: str, limit: Optional[int]):
+            if not limit or limit <= 0:
+                # Unlimited for this period
+                result[period_type] = {"count": 0, "limit": limit}
+                return
+
+            doc = self.usage_limits.find_one_and_update(
+                {
+                    "key": key,
+                    "feature": feature,
+                    "period_type": period_type,
+                    "period_value": period_value,
+                },
+                {
+                    "$inc": {"count": 1},
+                    "$set": {"last_at": now},
+                    "$setOnInsert": {"first_at": now},
+                },
+                upsert=True,
+                return_document=ReturnDocument.AFTER,
+            )
+
+            count = int(doc.get("count", 0))
+            result[period_type] = {"count": count, "limit": limit}
+            if count > limit:
+                result["allowed"] = False
+
+        _inc_and_check("daily", date_str, daily_limit)
+        _inc_and_check("monthly", month_str, monthly_limit)
+
+        return result
+
     def get_recent_posts(self, limit: int = 5) -> List[Dict[str, Any]]:
         """Get recent debunk posts from MongoDB
         
