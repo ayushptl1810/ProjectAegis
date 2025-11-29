@@ -1,6 +1,6 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form, WebSocket, WebSocketDisconnect, Request
 from typing import Optional, List, Dict, Any
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import uvicorn
@@ -1307,10 +1307,19 @@ async def get_educational_modules():
             raise HTTPException(status_code=503, detail="MongoDB service not available")
         
         modules_list = mongodb_service.get_educational_modules_list()
-        return {
+        response_data = {
             "modules": modules_list,
             "total": len(modules_list)
         }
+        # Return with no-cache headers to prevent stale cache in production
+        return JSONResponse(
+            content=response_data,
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            }
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -1331,7 +1340,15 @@ async def get_module_content(
         if not content:
             raise HTTPException(status_code=404, detail=f"Module '{module_id}' not found")
         
-        return content
+        # Return with no-cache headers to prevent stale cache in production
+        return JSONResponse(
+            content=content,
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            }
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -1351,14 +1368,24 @@ async def get_contextual_learning(verification_result: Dict[str, Any]):
 
 @app.post("/educational/clear-cache")
 async def clear_educational_cache():
-    """Clear all educational content from Redis cache"""
+    """
+    Clear all educational content from Redis cache.
+    
+    Note: The /educational/modules endpoints now use no-cache headers
+    to prevent browser/CDN caching. This endpoint is mainly for clearing
+    any legacy Redis cache entries.
+    """
     try:
         if educational_generator.redis_client:
             # Get all educational cache keys
             keys = educational_generator.redis_client.keys("educational:*")
             if keys:
                 educational_generator.redis_client.delete(*keys)
-                return {"message": f"Cleared {len(keys)} cache entries", "keys": keys}
+                return {
+                    "message": f"Cleared {len(keys)} cache entries",
+                    "keys": keys,
+                    "note": "Educational endpoints use no-cache headers to prevent stale data"
+                }
             else:
                 return {"message": "No cache entries found"}
         else:

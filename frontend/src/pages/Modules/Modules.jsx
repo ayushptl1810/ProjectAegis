@@ -2,7 +2,18 @@ import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 // eslint-disable-next-line no-unused-vars
 import { motion } from "framer-motion";
-import { Search, ArrowLeft, ListChecks, AlertTriangle, CheckCircle, ExternalLink, TrendingUp, Tag, Lightbulb, Shield } from "lucide-react";
+import {
+  Search,
+  ArrowLeft,
+  ListChecks,
+  AlertTriangle,
+  CheckCircle,
+  ExternalLink,
+  TrendingUp,
+  Tag,
+  Lightbulb,
+  Shield,
+} from "lucide-react";
 import ModuleCard from "../../components/ModuleCard";
 import ContentSection from "../../components/ContentSection";
 import PracticalTips from "../../components/PracticalTips";
@@ -49,7 +60,6 @@ const Modules = () => {
     loadModules();
   }, []);
 
-
   useEffect(() => {
     if (id) {
       loadModuleContent(id);
@@ -67,7 +77,17 @@ const Modules = () => {
   const loadModules = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${getApiBaseUrl()}/educational/modules`);
+      // Add cache-busting query parameter to ensure fresh data
+      const cacheBuster = `_t=${Date.now()}`;
+      const response = await fetch(
+        `${getApiBaseUrl()}/educational/modules?${cacheBuster}`,
+        {
+          cache: "no-store",
+          headers: {
+            "Cache-Control": "no-cache",
+          },
+        }
+      );
       if (response.ok) {
         const data = await response.json();
         setModules(data.modules || []);
@@ -109,8 +129,16 @@ const Modules = () => {
     try {
       setDetailLoading(true);
       setDetailError("");
+      // Add cache-busting query parameter to ensure fresh data
+      const cacheBuster = `_t=${Date.now()}`;
       const response = await fetch(
-        `${getApiBaseUrl()}/educational/modules/${moduleId}`
+        `${getApiBaseUrl()}/educational/modules/${moduleId}?${cacheBuster}`,
+        {
+          cache: "no-store",
+          headers: {
+            "Cache-Control": "no-cache",
+          },
+        }
       );
       if (!response.ok) {
         throw new Error("Failed to load module content");
@@ -276,20 +304,22 @@ const Modules = () => {
                     value: `${verificationTipsCount} strategies`,
                     hint: "Ways to verify information",
                   },
-                ].filter(card => card.value !== "N/A").map((card) => (
-                  <div
-                    key={card.label}
-                    className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-left"
-                  >
-                    <p className="text-xs uppercase tracking-[0.3em] text-gray-400">
-                      {card.label}
-                    </p>
-                    <p className="text-2xl font-semibold text-white mt-2">
-                      {card.value}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1">{card.hint}</p>
-                  </div>
-                ))}
+                ]
+                  .filter((card) => card.value !== "N/A")
+                  .map((card) => (
+                    <div
+                      key={card.label}
+                      className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-left"
+                    >
+                      <p className="text-xs uppercase tracking-[0.3em] text-gray-400">
+                        {card.label}
+                      </p>
+                      <p className="text-2xl font-semibold text-white mt-2">
+                        {card.value}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">{card.hint}</p>
+                    </div>
+                  ))}
               </div>
 
               {learningObjectives.length > 0 && (
@@ -337,7 +367,8 @@ const Modules = () => {
                     </div>
                     <div className="flex-1">
                       <h2 className="text-xl font-bold text-white mb-2">
-                        {moduleContent.misinformation_type || moduleContent.title}
+                        {moduleContent.misinformation_type ||
+                          moduleContent.title}
                       </h2>
                       <p className="text-gray-300 leading-relaxed">
                         {moduleContent.technique_explanation}
@@ -347,7 +378,9 @@ const Modules = () => {
                   {moduleContent.trending_score > 0 && (
                     <div className="flex items-center gap-2 mt-4 text-sm">
                       <TrendingUp className="w-4 h-4 text-yellow-400" />
-                      <span className="text-yellow-400 font-medium">Trending Score: {moduleContent.trending_score}/10</span>
+                      <span className="text-yellow-400 font-medium">
+                        Trending Score: {moduleContent.trending_score}/10
+                      </span>
                     </div>
                   )}
                 </div>
@@ -357,40 +390,54 @@ const Modules = () => {
                 {/* Main Content - Left Side */}
                 <div className="lg:col-span-2 space-y-6">
                   {/* Red Flags */}
-                  {moduleContent.red_flags && moduleContent.red_flags.length > 0 && (
-                    <div className="rounded-2xl border border-red-500/20 bg-gradient-to-br from-red-500/10 to-rose-500/10 backdrop-blur-xl p-6">
-                      <div className="flex items-center gap-3 mb-4">
-                        <AlertTriangle className="w-5 h-5 text-red-400" />
-                        <h3 className="text-lg font-bold text-white">Red Flags to Watch For</h3>
+                  {moduleContent.red_flags &&
+                    moduleContent.red_flags.length > 0 && (
+                      <div className="rounded-2xl border border-red-500/20 bg-gradient-to-br from-red-500/10 to-rose-500/10 backdrop-blur-xl p-6">
+                        <div className="flex items-center gap-3 mb-4">
+                          <AlertTriangle className="w-5 h-5 text-red-400" />
+                          <h3 className="text-lg font-bold text-white">
+                            Red Flags to Watch For
+                          </h3>
+                        </div>
+                        <ul className="space-y-3">
+                          {moduleContent.red_flags.map((flag, index) => (
+                            <li
+                              key={index}
+                              className="flex gap-3 text-gray-300"
+                            >
+                              <span className="text-red-400 mt-1">•</span>
+                              <span>{flag}</span>
+                            </li>
+                          ))}
+                        </ul>
                       </div>
-                      <ul className="space-y-3">
-                        {moduleContent.red_flags.map((flag, index) => (
-                          <li key={index} className="flex gap-3 text-gray-300">
-                            <span className="text-red-400 mt-1">•</span>
-                            <span>{flag}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
+                    )}
 
                   {/* Verification Tips */}
-                  {moduleContent.verification_tips && moduleContent.verification_tips.length > 0 && (
-                    <div className="rounded-2xl border border-green-500/20 bg-gradient-to-br from-green-500/10 to-emerald-500/10 backdrop-blur-xl p-6">
-                      <div className="flex items-center gap-3 mb-4">
-                        <CheckCircle className="w-5 h-5 text-green-400" />
-                        <h3 className="text-lg font-bold text-white">Verification Tips</h3>
+                  {moduleContent.verification_tips &&
+                    moduleContent.verification_tips.length > 0 && (
+                      <div className="rounded-2xl border border-green-500/20 bg-gradient-to-br from-green-500/10 to-emerald-500/10 backdrop-blur-xl p-6">
+                        <div className="flex items-center gap-3 mb-4">
+                          <CheckCircle className="w-5 h-5 text-green-400" />
+                          <h3 className="text-lg font-bold text-white">
+                            Verification Tips
+                          </h3>
+                        </div>
+                        <ol className="space-y-3">
+                          {moduleContent.verification_tips.map((tip, index) => (
+                            <li
+                              key={index}
+                              className="flex gap-3 text-gray-300"
+                            >
+                              <span className="text-green-400 font-bold min-w-[24px]">
+                                {index + 1}.
+                              </span>
+                              <span>{tip}</span>
+                            </li>
+                          ))}
+                        </ol>
                       </div>
-                      <ol className="space-y-3">
-                        {moduleContent.verification_tips.map((tip, index) => (
-                          <li key={index} className="flex gap-3 text-gray-300">
-                            <span className="text-green-400 font-bold min-w-[24px]">{index + 1}.</span>
-                            <span>{tip}</span>
-                          </li>
-                        ))}
-                      </ol>
-                    </div>
-                  )}
+                    )}
 
                   {/* Real-World Example */}
                   {moduleContent.example && moduleContent.example.heading && (
@@ -401,11 +448,13 @@ const Modules = () => {
                       </h3>
                       <div className="space-y-4">
                         {moduleContent.example.image_url && (
-                          <img 
-                            src={moduleContent.example.image_url} 
+                          <img
+                            src={moduleContent.example.image_url}
                             alt={moduleContent.example.heading}
                             className="rounded-xl w-full max-h-64 object-cover"
-                            onError={(e) => { e.target.style.display = 'none'; }}
+                            onError={(e) => {
+                              e.target.style.display = "none";
+                            }}
                           />
                         )}
                         <div>
@@ -414,14 +463,22 @@ const Modules = () => {
                           </h4>
                           {moduleContent.example.claim && (
                             <div className="mb-3 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
-                              <p className="text-sm text-red-200 font-medium mb-1">The Claim:</p>
-                              <p className="text-sm text-gray-300">{moduleContent.example.claim}</p>
+                              <p className="text-sm text-red-200 font-medium mb-1">
+                                The Claim:
+                              </p>
+                              <p className="text-sm text-gray-300">
+                                {moduleContent.example.claim}
+                              </p>
                             </div>
                           )}
                           {moduleContent.example.verdict && (
                             <div className="mb-3 p-3 rounded-lg bg-green-500/10 border border-green-500/30">
-                              <p className="text-sm text-green-200 font-medium mb-1">The Verdict:</p>
-                              <p className="text-sm text-gray-300">{moduleContent.example.verdict}</p>
+                              <p className="text-sm text-green-200 font-medium mb-1">
+                                The Verdict:
+                              </p>
+                              <p className="text-sm text-gray-300">
+                                {moduleContent.example.verdict}
+                              </p>
                             </div>
                           )}
                           {moduleContent.example.body && (
@@ -429,15 +486,19 @@ const Modules = () => {
                               {moduleContent.example.body}
                             </p>
                           )}
-                          {moduleContent.example.tags && moduleContent.example.tags.length > 0 && (
-                            <div className="flex flex-wrap gap-2 mb-4">
-                              {moduleContent.example.tags.map((tag, idx) => (
-                                <span key={idx} className="px-3 py-1 rounded-full text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                                  {tag}
-                                </span>
-                              ))}
-                            </div>
-                          )}
+                          {moduleContent.example.tags &&
+                            moduleContent.example.tags.length > 0 && (
+                              <div className="flex flex-wrap gap-2 mb-4">
+                                {moduleContent.example.tags.map((tag, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="px-3 py-1 rounded-full text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                                  >
+                                    {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           {moduleContent.example.source_url && (
                             <a
                               href={moduleContent.example.source_url}
@@ -445,7 +506,8 @@ const Modules = () => {
                               rel="noopener noreferrer"
                               className="inline-flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300 transition"
                             >
-                              Read full article <ExternalLink className="w-4 h-4" />
+                              Read full article{" "}
+                              <ExternalLink className="w-4 h-4" />
                             </a>
                           )}
                         </div>
@@ -457,54 +519,74 @@ const Modules = () => {
                 {/* Sidebar - Right Side */}
                 <div className="space-y-6">
                   {/* User Action Items */}
-                  {moduleContent.user_action_items && moduleContent.user_action_items.length > 0 && (
-                    <div className="rounded-2xl border border-purple-500/20 bg-gradient-to-br from-purple-500/10 to-indigo-500/10 backdrop-blur-xl p-6">
-                      <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                        <Lightbulb className="w-5 h-5 text-purple-400" />
-                        What You Can Do
-                      </h3>
-                      <ul className="space-y-2">
-                        {moduleContent.user_action_items.map((action, index) => (
-                          <li key={index} className="flex gap-2 text-sm text-gray-300">
-                            <span className="text-purple-400 mt-1">→</span>
-                            <span>{action}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
+                  {moduleContent.user_action_items &&
+                    moduleContent.user_action_items.length > 0 && (
+                      <div className="rounded-2xl border border-purple-500/20 bg-gradient-to-br from-purple-500/10 to-indigo-500/10 backdrop-blur-xl p-6">
+                        <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                          <Lightbulb className="w-5 h-5 text-purple-400" />
+                          What You Can Do
+                        </h3>
+                        <ul className="space-y-2">
+                          {moduleContent.user_action_items.map(
+                            (action, index) => (
+                              <li
+                                key={index}
+                                className="flex gap-2 text-sm text-gray-300"
+                              >
+                                <span className="text-purple-400 mt-1">→</span>
+                                <span>{action}</span>
+                              </li>
+                            )
+                          )}
+                        </ul>
+                      </div>
+                    )}
 
                   {/* Related Patterns */}
-                  {moduleContent.related_patterns && moduleContent.related_patterns.length > 0 && (
-                    <div className="rounded-2xl border border-cyan-500/20 bg-gradient-to-br from-cyan-500/10 to-blue-500/10 backdrop-blur-xl p-6">
-                      <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                        <Tag className="w-5 h-5 text-cyan-400" />
-                        Related Patterns
-                      </h3>
-                      <div className="flex flex-wrap gap-2">
-                        {moduleContent.related_patterns.map((pattern, index) => (
-                          <span key={index} className="px-3 py-1.5 rounded-lg text-sm bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
-                            {pattern}
-                          </span>
-                        ))}
+                  {moduleContent.related_patterns &&
+                    moduleContent.related_patterns.length > 0 && (
+                      <div className="rounded-2xl border border-cyan-500/20 bg-gradient-to-br from-cyan-500/10 to-blue-500/10 backdrop-blur-xl p-6">
+                        <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                          <Tag className="w-5 h-5 text-cyan-400" />
+                          Related Patterns
+                        </h3>
+                        <div className="flex flex-wrap gap-2">
+                          {moduleContent.related_patterns.map(
+                            (pattern, index) => (
+                              <span
+                                key={index}
+                                className="px-3 py-1.5 rounded-lg text-sm bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
+                              >
+                                {pattern}
+                              </span>
+                            )
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
 
                   {/* Sources of Technique */}
-                  {moduleContent.sources_of_technique && moduleContent.sources_of_technique.length > 0 && (
-                    <div className="rounded-2xl border border-white/10 bg-black/40 backdrop-blur-xl p-6">
-                      <h3 className="text-lg font-bold text-white mb-4">Common Sources</h3>
-                      <ul className="space-y-2">
-                        {moduleContent.sources_of_technique.map((source, index) => (
-                          <li key={index} className="text-sm text-gray-400 flex gap-2">
-                            <span className="text-gray-500">•</span>
-                            <span>{source}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
+                  {moduleContent.sources_of_technique &&
+                    moduleContent.sources_of_technique.length > 0 && (
+                      <div className="rounded-2xl border border-white/10 bg-black/40 backdrop-blur-xl p-6">
+                        <h3 className="text-lg font-bold text-white mb-4">
+                          Common Sources
+                        </h3>
+                        <ul className="space-y-2">
+                          {moduleContent.sources_of_technique.map(
+                            (source, index) => (
+                              <li
+                                key={index}
+                                className="text-sm text-gray-400 flex gap-2"
+                              >
+                                <span className="text-gray-500">•</span>
+                                <span>{source}</span>
+                              </li>
+                            )
+                          )}
+                        </ul>
+                      </div>
+                    )}
                 </div>
               </div>
             </>
