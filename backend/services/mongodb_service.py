@@ -834,6 +834,7 @@ class MongoDBService:
                     "image_url": post.get("metadata", {}).get("image_url"),
                     "source_url": post.get("post_content", {}).get("full_article_url")
                 },
+                "tags": post.get("metadata", {}).get("tags", []),
                 "estimated_time": "15-20 minutes",
                 "learning_objectives": [
                     f"Understand how {edu_module_cleaned.get('misinformation_type', 'misinformation')} works",

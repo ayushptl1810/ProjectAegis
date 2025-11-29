@@ -1,5 +1,5 @@
 import React from "react";
-import { Clock, CheckCircle } from "lucide-react";
+import { Clock, CheckCircle, Tag } from "lucide-react";
 import MotionText from "./MotionText";
 import MotionCard from "./MotionCard";
 
@@ -70,6 +70,20 @@ const ModuleCard = ({ module, isDarkMode, isCompleted, onClick }) => {
             </div>
           )}
       </div>
+
+      {module.tags && Array.isArray(module.tags) && module.tags.length > 0 && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {module.tags.slice(0, 4).map((tag) => (
+            <span
+              key={tag}
+              className="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-cyan-500/15 to-blue-500/15 px-2.5 py-1 text-[11px] font-medium text-cyan-200 border border-cyan-500/30"
+            >
+              <Tag className="w-3 h-3 text-cyan-300" />
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
     </MotionCard>
   );
 };
